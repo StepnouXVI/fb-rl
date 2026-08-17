@@ -134,21 +134,52 @@ def generate_all_plots(results_json_path: str = "results/summary_metrics.json", 
     x_graph = -6 + 12 * (t / 1.0)
     y_graph = -6 + 12 * (t / 1.0) + 3.5 * np.sin(t_g)
     ax.plot(x_graph, y_graph, label="Graph / Distilled (Success)", color="#10b981", linewidth=2.5)
-
-    ax.scatter([-6], [-6], color="blue", s=120, zorder=5, label="Start")
-    ax.scatter([6], [6], color="gold", s=150, edgecolors="black", marker="*", zorder=5, label="Goal")
-    
-    ax.set_title("2D Navigation Trajectory Rollouts on AntMaze Medium", fontweight="bold")
-    ax.set_xlabel("X coordinate")
-    ax.set_ylabel("Y coordinate")
-    ax.legend(loc="upper left")
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(-10, 10)
-
+    ax.set_title("Qualitative Navigation Trajectories", fontweight="bold")
+    ax.set_xlabel("X Position", fontweight="bold")
+    ax.set_ylabel("Y Position", fontweight="bold")
+    ax.legend(loc="lower right")
     plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "trajectory_rollouts.pdf"), dpi=300)
     plt.savefig(os.path.join(output_dir, "trajectory_rollouts.png"), dpi=300)
     plt.close()
-    print(f"[OK] Saved {os.path.join(output_dir, 'trajectory_rollouts.png')}")
+    print(f"[OK] Saved {os.path.join(output_dir, 'trajectory_rollouts.pdf')}")
+
+    # --- Plot 4: Architecture Search & Ablation Study ---
+    ablation_json_path = "results/architecture_ablation/ablation_summary.json"
+    if os.path.exists(ablation_json_path):
+        with open(ablation_json_path, "r") as f:
+            abl_data = json.load(f)
+        
+        arch_names = list(abl_data.keys())
+        val_cos = [abl_data[a]["final_val_cosine_sim"] for a in arch_names]
+        sr_means = [abl_data[a]["success_rate"]["mean"] for a in arch_names]
+        sr_stds = [abl_data[a]["success_rate"]["std"] for a in arch_names]
+        lat_means = [abl_data[a]["latency_ms"]["mean"] for a in arch_names]
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
+        
+        # Subplot 1: Success Rate across Architectures
+        ax1.bar(arch_names, sr_means, yerr=sr_stds, capsize=4, color="#3b82f6", alpha=0.85, edgecolor="black")
+        ax1.set_ylabel("Success Rate (%)", fontweight="bold")
+        ax1.set_title("Architecture Success on AntMaze Medium (10 Seeds)", fontweight="bold")
+        ax1.set_xticklabels(arch_names, rotation=25, ha="right")
+        ax1.set_ylim(0, 100)
+
+        # Subplot 2: Validation Cosine Similarity vs Latency
+        for name, cos, lat in zip(arch_names, val_cos, lat_means):
+            ax2.scatter(lat, cos, s=150, edgecolors="black", label=name)
+            ax2.annotate(name.split()[0], (lat, cos), xytext=(5, 3), textcoords="offset points", fontsize=9)
+        
+        ax2.set_xlabel("Inference Latency (ms/step)", fontweight="bold")
+        ax2.set_ylabel("Validation Cosine Similarity", fontweight="bold")
+        ax2.set_title("Distillation Quality vs Step Latency", fontweight="bold")
+        ax2.grid(True, ls="--", alpha=0.6)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "architecture_ablation.pdf"), dpi=300)
+        plt.savefig(os.path.join(output_dir, "architecture_ablation.png"), dpi=300)
+        plt.close()
+        print(f"[OK] Saved {os.path.join(output_dir, 'architecture_ablation.pdf')}")
 
 
 if __name__ == "__main__":

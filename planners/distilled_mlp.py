@@ -1,9 +1,9 @@
 """
 DistilledMLPPlanner: Lightweight Neural Controller Distilled from Topological Graph Search.
-Trains a fast 3-layer MLP on optimal path waypoints for instant O(1) step inference.
+Supports configurable architectures (depth, width, residual connections) and train/val split monitoring.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,25 +17,52 @@ from planners.buffer_graph import BufferGraphPlanner
 
 class SubgoalMLPNetwork(nn.Module):
     """
-    3-Layer Lightweight MLP: (obs_dim + latent_dim) -> 256 -> 256 -> latent_dim.
-    # ponytail: Standard PyTorch Sequential MLP, zero unnecessary abstractions.
+    Configurable MLP Network for Subgoal Intention Prediction.
+    Supports arbitrary depth, width, LayerNorm, GELU activations, and optional Residual skips.
+    # ponytail: Clean modular PyTorch Module with residual skip option.
     """
 
-    def __init__(self, obs_dim: int = 29, latent_dim: int = 128, hidden_dim: int = 256):
+    def __init__(
+        self,
+        obs_dim: int = 29,
+        latent_dim: int = 128,
+        hidden_dims: Optional[List[int]] = None,
+        use_residual: bool = False,
+        dropout: float = 0.0,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(obs_dim + latent_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, latent_dim),
-        )
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
+            
+        self.use_residual = use_residual
+        self.input_dim = obs_dim + latent_dim
+        self.latent_dim = latent_dim
+
+        # Build layers
+        self.blocks = nn.ModuleList()
+        in_d = self.input_dim
+        for h_d in hidden_dims:
+            block = nn.Sequential(
+                nn.Linear(in_d, h_d),
+                nn.LayerNorm(h_d),
+                nn.GELU(),
+                nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
+            )
+            self.blocks.append(block)
+            in_d = h_d
+
+        self.head = nn.Linear(in_d, latent_dim)
 
     def forward(self, obs: torch.Tensor, z_goal: torch.Tensor) -> torch.Tensor:
         x = torch.cat([obs, z_goal], dim=-1)
-        return self.net(x)
+        h = x
+        for i, block in enumerate(self.blocks):
+            h_next = block(h)
+            if self.use_residual and h_next.shape == h.shape:
+                h = h + h_next
+            else:
+                h = h_next
+        return self.head(h)
 
 
 class DistilledMLPPlanner(BaseHierarchicalPlanner):
@@ -50,6 +77,8 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
         name: str = "Distilled Latent MLP (Branch 3)",
         obs_dim: int = 29,
         latent_dim: int = 128,
+        hidden_dims: Optional[List[int]] = None,
+        use_residual: bool = False,
         device: str = "cpu",
         config: Optional[Dict[str, Any]] = None,
     ):
@@ -58,6 +87,8 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
         self.dataset_sampler = dataset_sampler
         self.obs_dim = obs_dim
         self.latent_dim = latent_dim
+        self.hidden_dims = hidden_dims or [256, 256]
+        self.use_residual = use_residual
         
         # Check MPS availability
         if device == "mps" and torch.backends.mps.is_available():
@@ -67,28 +98,35 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
         else:
             self.device = torch.device("cpu")
 
-        self.model = SubgoalMLPNetwork(obs_dim=obs_dim, latent_dim=latent_dim).to(self.device)
+        self.model = SubgoalMLPNetwork(
+            obs_dim=obs_dim,
+            latent_dim=latent_dim,
+            hidden_dims=self.hidden_dims,
+            use_residual=use_residual,
+        ).to(self.device)
         self.is_trained = False
+        self.training_history: Dict[str, List[float]] = {}
 
     def train_distillation(
         self,
         graph_planner: Optional[BufferGraphPlanner] = None,
-        n_pairs: int = 500,
+        n_pairs: int = 1000,
+        val_ratio: float = 0.2,
         epochs: int = 25,
         batch_size: int = 64,
         lr: float = 1e-3,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
-        Generate dataset of optimal path transitions and train the lightweight MLP.
+        Generate dataset of optimal path transitions and train the lightweight MLP with train/val split.
         """
         if graph_planner is None:
             graph_planner = BufferGraphPlanner(
                 fb_model=self.fb_model,
                 dataset_sampler=self.dataset_sampler,
-                n_landmarks=100,
+                n_landmarks=150,
             )
 
-        print(f"[{self.name}] Generating {n_pairs} distillation path pairs from graph search...")
+        print(f"[{self.name}] Generating {n_pairs} distillation path pairs (Train: {int(n_pairs*(1-val_ratio))}, Val: {int(n_pairs*val_ratio)})...")
         states = self.dataset_sampler.sample_candidates(n_pairs * 2)
         start_states = states[:n_pairs]
         goal_states = states[n_pairs:]
@@ -112,28 +150,34 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
             inputs_zg.append(z_g)
             targets_zw.append(z_w)
 
-        obs_t = torch.tensor(np.asarray(inputs_obs), dtype=torch.float32, device=self.device)
-        zg_t = torch.tensor(np.asarray(inputs_zg), dtype=torch.float32, device=self.device)
-        zw_t = torch.tensor(np.asarray(targets_zw), dtype=torch.float32, device=self.device)
+        # Train / Val Split
+        n_val = int(n_pairs * val_ratio)
+        n_train = n_pairs - n_val
+
+        obs_train = torch.tensor(np.asarray(inputs_obs[:n_train]), dtype=torch.float32, device=self.device)
+        zg_train = torch.tensor(np.asarray(inputs_zg[:n_train]), dtype=torch.float32, device=self.device)
+        zw_train = torch.tensor(np.asarray(targets_zw[:n_train]), dtype=torch.float32, device=self.device)
+
+        obs_val = torch.tensor(np.asarray(inputs_obs[n_train:]), dtype=torch.float32, device=self.device)
+        zg_val = torch.tensor(np.asarray(inputs_zg[n_train:]), dtype=torch.float32, device=self.device)
+        zw_val = torch.tensor(np.asarray(targets_zw[n_train:]), dtype=torch.float32, device=self.device)
 
         optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-4)
         cos_sim = nn.CosineSimilarity(dim=-1)
-        num_samples = len(obs_t)
 
-        self.model.train()
-        losses = []
+        train_losses, val_losses, val_cos_sims, val_mses = [], [], [], []
+
         for ep in range(epochs):
-            perm = torch.randperm(num_samples)
+            self.model.train()
+            perm = torch.randperm(n_train)
             ep_losses = []
-            for j in range(0, num_samples, batch_size):
+            for j in range(0, n_train, batch_size):
                 idx = perm[j:j+batch_size]
-                b_obs = obs_t[idx]
-                b_zg = zg_t[idx]
-                b_zw = zw_t[idx]
+                b_obs = obs_train[idx]
+                b_zg = zg_train[idx]
+                b_zw = zw_train[idx]
 
                 pred_z = self.model(b_obs, b_zg)
-                
-                # Combined Loss: MSE + Cosine Distance
                 mse_loss = nn.functional.mse_loss(pred_z, b_zw)
                 cos_loss = torch.mean(1.0 - cos_sim(pred_z, b_zw))
                 loss = mse_loss + 0.5 * cos_loss
@@ -143,20 +187,43 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
                 optimizer.step()
                 ep_losses.append(loss.item())
 
-            avg_ep_loss = float(np.mean(ep_losses))
-            losses.append(avg_ep_loss)
+            # Validation
+            self.model.eval()
+            with torch.no_grad():
+                pred_val = self.model(obs_val, zg_val)
+                val_mse = nn.functional.mse_loss(pred_val, zw_val).item()
+                val_cos = torch.mean(cos_sim(pred_val, zw_val)).item()
+                val_loss = val_mse + 0.5 * (1.0 - val_cos)
 
-        self.model.eval()
+            train_losses.append(float(np.mean(ep_losses)))
+            val_losses.append(float(val_loss))
+            val_cos_sims.append(float(val_cos))
+            val_mses.append(float(val_mse))
+
         self.is_trained = True
-        return {"final_loss": losses[-1] if losses else 0.0, "epochs": epochs}
+        self.training_history = {
+            "train_loss": train_losses,
+            "val_loss": val_losses,
+            "val_cosine_sim": val_cos_sims,
+            "val_mse": val_mses,
+        }
+
+        return {
+            "final_train_loss": train_losses[-1] if train_losses else 0.0,
+            "final_val_loss": val_losses[-1] if val_losses else 0.0,
+            "final_val_cosine_sim": val_cos_sims[-1] if val_cos_sims else 0.0,
+            "final_val_mse": val_mses[-1] if val_mses else 0.0,
+            "epochs": epochs,
+            "n_train": n_train,
+            "n_val": n_val,
+        }
 
     def reset(self, initial_obs: np.ndarray, goal: np.ndarray) -> None:
         super().reset(initial_obs, goal)
 
     def get_intention(self, obs: np.ndarray, goal: np.ndarray, step: int = 0) -> np.ndarray:
         if not self.is_trained:
-            # Self-train if not yet trained
-            self.train_distillation(n_pairs=200, epochs=15)
+            self.train_distillation(n_pairs=300, epochs=15)
 
         z_g = self.fb_model.encode_backward(goal)
         
