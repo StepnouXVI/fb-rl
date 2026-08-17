@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>План реализации: Multi-Subgoal Planning поверх FB-представлений</title>
+  
+  <!-- Apply theme before paint to prevent flicker -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    })();
+  </script>
+
+  <!-- KaTeX for crisp mathematical formula rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f1f5f9;
+      --border: #e2e8f0;
+      --border-focus: #3b82f6;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --accent: #059669;
+      --accent-light: #ecfdf5;
+      --warning: #d97706;
+      --warning-light: #fffbeb;
+      --purple: #7c3aed;
+      --purple-light: #f5f3ff;
+      --code-bg: #1e293b;
+      --code-text: #f8fafc;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    html.dark {
+      --bg: #0b0f19;
+      --bg-card: #131b2e;
+      --bg-card-hover: #1e293b;
+      --border: #1e293b;
+      --border-focus: #60a5fa;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
+      --primary-light: rgba(59, 130, 246, 0.12);
+      --accent: #10b981;
+      --accent-light: rgba(16, 185, 129, 0.12);
+      --warning: #f59e0b;
+      --warning-light: rgba(245, 158, 11, 0.12);
+      --purple: #8b5cf6;
+      --purple-light: rgba(139, 92, 246, 0.12);
+      --code-bg: #090d16;
+      --code-text: #e2e8f0;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .title-area h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+
+    .title-area p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    .badge-bar {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-blue { background: var(--primary-light); color: var(--primary); }
+    .badge-green { background: var(--accent-light); color: var(--accent); }
+    .badge-purple { background: var(--purple-light); color: var(--purple); }
+    .badge-amber { background: var(--warning-light); color: var(--warning); }
+
+    .theme-toggle {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 0.85rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      box-shadow: var(--shadow);
+      transition: all 0.2s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--bg-card-hover);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 2rem;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.75rem 1.25rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 0.5rem 0.5rem 0 0;
+      transition: all 0.2s;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    .tab-btn.active {
+      color: var(--primary);
+    }
+
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--primary);
+    }
+
+    .tab-btn:hover:not(.active) {
+      color: var(--text);
+      background: var(--bg-card-hover);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+      transition: border-color 0.2s;
+    }
+
+    .card:hover {
+      border-color: var(--border-focus);
+    }
+
+    .card h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .math-block {
+      background: var(--bg-card);
+      border-left: 4px solid var(--primary);
+      border-radius: 0 0.5rem 0.5rem 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+
+    .math-formula {
+      margin: 0.75rem 0;
+      font-size: 1.05rem;
+    }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      margin: 0.75rem 0;
+      border: 1px solid var(--border);
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      padding: 0.15em 0.35em;
+      background: var(--bg-card-hover);
+      border-radius: 0.25rem;
+      border: 1px solid var(--border);
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      border: none;
+      font-size: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 2rem 0;
+      background: var(--bg-card);
+      border-radius: 0.5rem;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+
+    th, td {
+      padding: 0.85rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    th {
+      background: var(--bg-card-hover);
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .task-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.85rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      margin-bottom: 0.5rem;
+      transition: all 0.2s;
+    }
+
+    .task-item:hover {
+      background: var(--bg-card-hover);
+    }
+
+    .task-item input[type="checkbox"] {
+      margin-top: 0.3rem;
+      cursor: pointer;
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+
+    .task-body {
+      flex: 1;
+    }
+
+    .task-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .task-desc {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .callout {
+      padding: 1rem 1.25rem;
+      border-radius: 0.5rem;
+      margin: 1rem 0;
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .callout-info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+    .callout-success { background: var(--accent-light); border-left: 4px solid var(--accent); }
+    .callout-warning { background: var(--warning-light); border-left: 4px solid var(--warning); }
+    .callout-purple { background: var(--purple-light); border-left: 4px solid var(--purple); }
+
+    .callout-icon {
+      font-size: 1.2rem;
+    }
+
+    .callout-text {
+      flex: 1;
+      font-size: 0.9rem;
+    }
+
+    .agent-pipeline {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .pipeline-stage {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+    }
+
+    .pipeline-header {
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .agent-chips {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .agent-chip {
+      background: var(--bg-card-hover);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.75rem;
+      border-radius: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-area">
+        <h1>Multi-Subgoal Planning на FB-представлениях</h1>
+        <p>Архитектурный и операционный план исследования, TDD-разработки в 3 ветках и верификации</p>
+        <div class="badge-bar">
+          <span class="badge badge-blue">Zero-Shot RL</span>
+          <span class="badge badge-green">3 Git Ветки</span>
+          <span class="badge badge-purple">9 Субагентов</span>
+          <span class="badge badge-amber">Math Auditor & Fable Judge</span>
+        </div>
+      </div>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+        <span id="themeIcon">🌙</span> <span id="themeLabel">Тема</span>
+      </button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" onclick="switchTab('overview')">1. Концепция и Архитектура</button>
+      <button class="tab-btn" onclick="switchTab('methods')">2. Три Метода и Математика</button>
+      <button class="tab-btn" onclick="switchTab('agents')">3. Оркестрация Субагентов</button>
+      <button class="tab-btn" onclick="switchTab('tasks')">4. Пошаговые Задачи (TDD)</button>
+      <button class="tab-btn" onclick="switchTab('benchmark')">5. Бенчмарк и Отчёт</button>
+    </nav>
+
+    <section id="overview" class="tab-content active">
+      <div class="callout callout-info">
+        <div class="callout-icon">💡</div>
+        <div class="callout-text">
+          <strong>Постановка задачи:</strong> Замороженные FB-модели выучили меру преемника (Successor Measure) $M(s, z)$. Одноинтенциональный бейзлайн выбирает один вектор $z$ за раз и застревает в лабиринтах на длинных горизонтах. Наша цель — построить планировщик цепочки подцелей $(w_1, w_2, \dots, w_K)$, строго без тяжелых генеративных моделей мира (World Models / Diffusers).
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>📐 DRY Архитектура с /ponytail</h3>
+          <p>Все общие компоненты вынесены в модуль <code>fb_core/</code>, исключая дублирование логики между ветками:</p>
+          <ul style="margin-left: 1.25rem; margin-top: 0.5rem; font-size: 0.9rem;">
+            <li><code>fb_core/base_planner.py</code> — абстрактный базовый класс с единым контрактом <code>get_next_intention(obs, goal)</code>.</li>
+            <li><code>fb_core/fb_model_wrapper.py</code> — загрузка и инференс замороженных весов FB ($F, B, \pi_l$).</li>
+            <li><code>fb_core/dataset_sampler.py</code> — векторизованная выборка и Farthest Point Sampling (FPS).</li>
+            <li><code>fb_core/evaluator.py</code> — универсальный раннер оценки на 5 сидах для <code>antmaze-medium-navigate-v0</code>.</li>
+            <li><code>fb_core/math_utils.py</code> — численно стабильные функции ($\epsilon$-clipping, log-dot, нормализация).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>🌿 Стратегия Git-веток</h3>
+          <p>Каждый метод изолирован в своей ветке, но использует единое ядро:</p>
+          <ul style="margin-left: 1.25rem; margin-top: 0.5rem; font-size: 0.9rem;">
+            <li><code>main</code> — ядро <code>fb_core/</code>, бейзлайн, тесты и сводный бенчмарк.</li>
+            <li><code>idea-1-recursive-bisection</code> — Рекурсивный бинарный поиск подцелей (Divide & Conquer).</li>
+            <li><code>idea-2-buffer-graph-dijkstra</code> — Топологический граф по датасету + Дейкстра в FB-метрике.</li>
+            <li><code>idea-3-distilled-latent-mlp</code> — Дистилляция графа в легковесную MLP $\pi^h_\theta(s, B(g)) \to z$.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔍 Иерархия файлов проекта</h3>
+        <pre><code>fb-rl/
+├── fb_core/                  # Единое ядро (DRY & YAGNI)
+│   ├── base_planner.py       # Интерфейс BaseHierarchicalPlanner
+│   ├── fb_model_wrapper.py   # JAX/PyTorch frozen FB bridge
+│   ├── dataset_sampler.py    # Offline dataset & FPS landmarks
+│   ├── evaluator.py          # Unified multi-seed rollout engine
+│   ├── metrics_collector.py  # Statistical CI & CSV/JSON exporter
+│   └── math_utils.py         # Numerically stable log-dot operations
+├── planners/                 # Реализации планировщиков
+│   ├── baseline_planner.py   # Single-intention baseline wrapper
+│   ├── recursive_bisection.py# Ветка 1: Recursive Bisection
+│   ├── buffer_graph.py       # Ветка 2: Topological Graph & Dijkstra
+│   └── distilled_mlp.py      # Ветка 3: Distilled Fast MLP
+├── tests/                    # TDD тесты и мат. аудит
+│   ├── test_math_properties.py
+│   ├── test_fb_model.py
+│   ├── test_planners.py
+│   └── test_evaluator.py
+├── scripts/                  # Скрипты запуска и визуализации
+│   ├── run_benchmark.py
+│   ├── generate_plots.py
+│   └── export_report_data.py
+└── report/                   # Научный отчёт в LaTeX
+    ├── main.tex
+    ├── references.bib
+    └── figures/</code></pre>
+      </div>
+    </section>
+
+    <section id="methods" class="tab-content">
+      <div class="callout callout-purple">
+        <div class="callout-icon">🔬</div>
+        <div class="callout-text">
+          <strong>Математический фундамент Successor Measures:</strong><br>
+          Мера преемника $M^{\pi_z}_s(s')$ определяет дисконтированную плотность будущих посещений: $\frac{dM^{\pi_z}_s}{d\rho}(s') \approx F(s, z)^\top B(s')$. Скалярное произведение $F(s, B(w))^\top B(w)$ пропорционально вероятности агента достичь подцели $w$ из состояния $s$.
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3>1. Рекурсивное деление (Bisection)</h3>
+          <span class="badge badge-blue">Без дообучения</span>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Принцип «Разделяй и властвуй». Нахождение оптимальной медианной подцели $w^*$ из буфера с рекурсивным спуском.
+          </p>
+          <div class="math-block">
+            <div class="math-formula">
+              $$w^* = \arg\max_{w \in \mathcal{V}} \left[ \log(F(s, B(w))^\top B(w)) + \log(F(w, B(g))^\top B(g)) \right]$$
+            </div>
+          </div>
+          <p style="font-size: 0.85rem;">
+            <strong>Плюсы:</strong> Изолирует ошибку внутри подотрезков, не требует построения графа $O(N^2)$.<br>
+            <strong>Контроль:</strong> Остановка рекурсии при $F(s, B(w^*))^\top B(w^*) > \tau_{\text{reach}}$ или глубине $\ge 3$.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>2. Топологический граф (Dijkstra)</h3>
+          <span class="badge badge-green">Без дообучения</span>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Построение ориентированного графа $G=(V,E)$ по $N \approx 1000$ узлам датасета, отобранным через FPS.
+          </p>
+          <div class="math-block">
+            <div class="math-formula">
+              $$c(s_i, s_j) = -\log\left(\max(F(s_i, B(s_j))^\top B(s_j), \epsilon)\right)$$
+            </div>
+          </div>
+          <p style="font-size: 0.85rem;">
+            <strong>Плюсы:</strong> Глобальный оптимум обхода стен и лабиринтов, гарантированное отсутствие застреваний.<br>
+            <strong>Исполнение:</strong> Поиск кратчайшего пути Дейкстрой $s \rightsquigarrow g$ и динамическое переключение по окрестности.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>3. Дистиллированная MLP $\pi^h_\theta$</h3>
+          <span class="badge badge-purple">Сверхлегкое обучение</span>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Дистилляция оптимальных путей графа в 3-слойную MLP для мгновенного инференса $O(1)$ без графового поиска в рантайме.
+          </p>
+          <div class="math-block">
+            <div class="math-formula">
+              $$\mathcal{L}(\theta) = \mathbb{E} \left[ \|\pi^h_\theta(s, B(g)) - B(w_1^*)\|_2^2 + \lambda (1 - \cos(\hat{z}, z^*)) \right]$$
+            </div>
+          </div>
+          <p style="font-size: 0.85rem;">
+            <strong>Плюсы:</strong> Инференс за 0.2 мс на шаг, идеальное соблюдение ограничений ТЗ (нет тяжелых генеративных моделей).<br>
+            <strong>Обоснование:</strong> Устраняет квадратичную сложность графового поиска на инференсе.
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🛡️ Математический чеклист для Субагента-Аудитора (Math Auditor)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Свойство / Теорема</th>
+              <th>Математическая формулировка</th>
+              <th>Проверка в коде</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Неотрицательность меры</strong></td>
+              <td>$F(s, z)^\top B(s') \ge 0$ почти всюду</td>
+              <td><code>safe_log_dot(F, B, eps=1e-6)</code> с защитой от $\le 0$</td>
+            </tr>
+            <tr>
+              <td><strong>Квази-метрика расстояния</strong></td>
+              <td>$d(s_i, s_j) = -\log(F(s_i, B(s_j))^\top B(s_j)) \ge 0$</td>
+              <td>$d(s, s) \approx 0$, $d(s_i, s_j) \le d(s_i, s_k) + d(s_k, s_j) + \delta$</td>
+            </tr>
+            <tr>
+              <td><strong>Нормировка латентов</strong></td>
+              <td>$\|z\|_2 = \sqrt{d_{\text{latent}}}$</td>
+              <td><code>z / norm(z) * sqrt(dim)</code> перед подачей в $F$ и $\pi_l$</td>
+            </tr>
+            <tr>
+              <td><strong>Аддитивность путей</strong></td>
+              <td>$\log M(s \to g) \approx \log M(s \to w) + \log M(w \to g)$</td>
+              <td>Тест треугольника в <code>test_math_properties.py</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="agents" class="tab-content">
+      <div class="callout callout-success">
+        <div class="callout-icon">🤖</div>
+        <div class="callout-text">
+          <strong>Роль Оркестратора:</strong> Главный поток управляет жизненным циклом субагентов по протоколу <code>/fable-loop</code>. Задачи распределяются параллельно, результаты верифицируются состязательными субагентами перед слиянием.
+        </div>
+      </div>
+
+      <div class="agent-pipeline">
+        <div class="pipeline-stage">
+          <div class="pipeline-header">
+            <span>Этап 1: Теория, Ядро и Бейзлайн</span>
+            <span class="badge badge-blue">Параллельный запуск</span>
+          </div>
+          <div class="agent-chips">
+            <div class="agent-chip">🧮 Agent-0: <code>math-auditor</code></div>
+            <div class="agent-chip">⚙️ Agent-1: <code>core-architect</code></div>
+            <div class="agent-chip">🎯 Agent-2: <code>baseline-runner</code></div>
+          </div>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Математический аудит квази-метрик, сборка единого ядра <code>fb_core</code> и запуск оценки бейзлайна на 5 сидах.
+          </p>
+        </div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-header">
+            <span>Этап 2: Разработка 3 Механизмов в Ветках</span>
+            <span class="badge badge-purple">Изолированные воркспейсы</span>
+          </div>
+          <div class="agent-chips">
+            <div class="agent-chip">🌿 Agent-3: <code>branch1-bisection</code></div>
+            <div class="agent-chip">🗺️ Agent-4: <code>branch2-graph</code></div>
+            <div class="agent-chip">⚡ Agent-5: <code>branch3-distilled</code></div>
+          </div>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Параллельная TDD-реализация планировщиков в соответствующих Git-ветках с локальными pytest-проверками.
+          </p>
+        </div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-header">
+            <span>Этап 3: Бенчмаркинг, Визуализация и LaTeX Отчёт</span>
+            <span class="badge badge-green">Сводка и публикация</span>
+          </div>
+          <div class="agent-chips">
+            <div class="agent-chip">📊 Agent-6: <code>benchmark-visualizer</code></div>
+            <div class="agent-chip">📝 Agent-7: <code>report-latex-auditor</code></div>
+            <div class="agent-chip">⚖️ Agent-8: <code>fable-adversarial-judge</code></div>
+          </div>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+            Агрегация логов, генерация траекторных 2D-карт, синхронизация метрик в <code>report/main.tex</code> и финальная состязательная проверка.
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📋 Детальная матрица спецификаций субагентов</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Роль субагента</th>
+              <th>Входные данные</th>
+              <th>Главный артефакт / Результат</th>
+              <th>Критерий приёмки (DoD)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>A-0</strong></td>
+              <td><code>math-auditor</code></td>
+              <td>Уравнения FB, <code>Task.md</code></td>
+              <td><code>tests/test_math_properties.py</code></td>
+              <td>100% PASS математических инвариантов</td>
+            </tr>
+            <tr>
+              <td><strong>A-1</strong></td>
+              <td><code>core-architect</code></td>
+              <td>Чекпоинты, OGBench API</td>
+              <td>Пакет <code>fb_core/</code></td>
+              <td>Clean tests, zero duplication, Ponytail OK</td>
+            </tr>
+            <tr>
+              <td><strong>A-2</strong></td>
+              <td><code>baseline-runner</code></td>
+              <td><code>fb_core</code>, чекпоинт</td>
+              <td><code>results/baseline/eval.csv</code></td>
+              <td>5 сидов, логирование Success Rate</td>
+            </tr>
+            <tr>
+              <td><strong>A-3</strong></td>
+              <td><code>branch1-bisection</code></td>
+              <td>Ветка <code>idea-1-recursive-bisection</code></td>
+              <td><code>planners/recursive_bisection.py</code></td>
+              <td>Success Rate > Baseline, tests PASS</td>
+            </tr>
+            <tr>
+              <td><strong>A-4</strong></td>
+              <td><code>branch2-graph</code></td>
+              <td>Ветка <code>idea-2-buffer-graph-dijkstra</code></td>
+              <td><code>planners/buffer_graph.py</code></td>
+              <td>FPS выборка, Дейкстра без тупиков</td>
+            </tr>
+            <tr>
+              <td><strong>A-5</strong></td>
+              <td><code>branch3-distilled</code></td>
+              <td>Ветка <code>idea-3-distilled-latent-mlp</code></td>
+              <td><code>planners/distilled_mlp.py</code></td>
+              <td>MSE &lt; 0.05, задержка шага &lt; 0.5 мс</td>
+            </tr>
+            <tr>
+              <td><strong>A-6</strong></td>
+              <td><code>benchmark-visualizer</code></td>
+              <td>Все CSV логов (сиды 0-4)</td>
+              <td>Графики в <code>report/figures/</code></td>
+              <td>PGFPlots & PNG графики с 95% CI</td>
+            </tr>
+            <tr>
+              <td><strong>A-7</strong></td>
+              <td><code>report-latex-auditor</code></td>
+              <td>Сводные данные, графики</td>
+              <td><code>report/main.pdf</code></td>
+              <td>Сборка LuaLaTeX без ошибок, цифры совпадают</td>
+            </tr>
+            <tr>
+              <td><strong>A-8</strong></td>
+              <td><code>fable-adversarial-judge</code></td>
+              <td>Диффы веток, кодовая база</td>
+              <td>Аудиторский вердикт (VERIFIED)</td>
+              <td>Стресс-тесты пройдены, нет YAGNI нарушений</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tasks" class="tab-content">
+      <div class="callout callout-warning">
+        <div class="callout-icon">⚡</div>
+        <div class="callout-text">
+          <strong>TDD протокол:</strong> Сначала пишется падающий тест $\to$ запуск с проверкой ошибки $\to$ минимальная реализация по принципу Ponytail $\to$ прохождение теста $\to$ атомарный Git-коммит.
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t1" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 1: Математический аудит и numerical safety kernels</div>
+          <div class="task-desc">Тесты квази-метрических аксиом, <code>safe_log_dot</code>, нормализация латентов в <code>fb_core/math_utils.py</code>.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t2" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 2: Единый модульный движок <code>fb_core</code></div>
+          <div class="task-desc">Интерфейс <code>BaseHierarchicalPlanner</code>, FB Model Wrapper (JAX/Torch), Replay Buffer & FPS sampler, Evaluator.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t3" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 3: Оценка Single-Intention бейзлайна на 5 сидах</div>
+          <div class="task-desc">Запуск оценки на <code>ogbench-antmaze-medium-navigate-v0</code>, экспорт baseline логов в <code>results/baseline/eval.csv</code>.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t4" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 4: Ветка 1 — Recursive Bisection Planner</div>
+          <div class="task-desc">Создание ветки <code>idea-1-recursive-bisection</code>, векторизованный поиск промежуточной точки, рекурсивная остановка, 5 сидов.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t5" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 5: Ветка 2 — Topological Buffer Graph Planner</div>
+          <div class="task-desc">Создание ветки <code>idea-2-buffer-graph-dijkstra</code>, FPS отбор ориентиров, матрица смежности $-\log(F^\top B)$, Дейкстра, 5 сидов.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t6" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 6: Ветка 3 — Distilled Latent Multi-Subgoal MLP</div>
+          <div class="task-desc">Создание ветки <code>idea-3-distilled-latent-mlp</code>, датасет оптимальных путей, обучение легковесной MLP, оценка задержки и 5 сидов.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t7" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 7: Сводный сравнительный бенчмарк и визуализации</div>
+          <div class="task-desc">Генерация графиков успеха (с 95% Bootstrap CI), траекторных карт навигации по лабиринту и Pareto-графика задержки инференса.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t8" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 8: Обновление и компиляция научного отчёта в LaTeX</div>
+          <div class="task-desc">Синхронизация формул, таблиц и PGFPlots графиков в <code>report/main.tex</code>, успешная компиляция в <code>report/main.pdf</code>.</div>
+        </div>
+      </div>
+
+      <div class="task-item">
+        <input type="checkbox" id="t9" onchange="updateProgress()">
+        <div class="task-body">
+          <div class="task-title">Task 9: Состязательная Fable-верификация и Ponytail код-аудит</div>
+          <div class="task-desc">Проверка граничных случаев, удаление мертвого кода, итоговый отчёт о выполнении (outcome-first).</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="benchmark" class="tab-content">
+      <div class="callout callout-info">
+        <div class="callout-icon">📈</div>
+        <div class="callout-text">
+          <strong>Целевые метрики оценки:</strong> Сравнение 4 подходов на <code>ogbench-antmaze-medium-navigate-v0</code> по 5 независимым сидам (0, 1, 2, 3, 4) по 20 эпизодов на сид.
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📊 Сводная таблица ожидаемых метрик</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Метод</th>
+              <th>Success Rate (%)</th>
+              <th>Длина траектории (шагов)</th>
+              <th>Задержка решения на шаг (мс)</th>
+              <th>Обучение новых весов</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Baseline (Single-Intention)</strong></td>
+              <td>40 – 45%</td>
+              <td>480 ± 35</td>
+              <td><strong>&lt; 0.1 мс</strong></td>
+              <td>Нет</td>
+            </tr>
+            <tr>
+              <td><strong>1. Recursive Bisection</strong></td>
+              <td>68 – 75%</td>
+              <td>350 ± 25</td>
+              <td>~ 2.5 мс</td>
+              <td>Нет</td>
+            </tr>
+            <tr>
+              <td><strong>2. Buffer Graph (Dijkstra)</strong></td>
+              <td><strong>82 – 88%</strong></td>
+              <td><strong>295 ± 20</strong></td>
+              <td>~ 8.0 мс</td>
+              <td>Нет</td>
+            </tr>
+            <tr>
+              <td><strong>3. Distilled Latent MLP</strong></td>
+              <td>78 – 84%</td>
+              <td>310 ± 22</td>
+              <td><strong>~ 0.3 мс</strong></td>
+              <td>Да (MLP, 2 мин)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🖼️ Графики для научного отчёта</h3>
+          <ul style="margin-left: 1.25rem; font-size: 0.9rem;">
+            <li><strong>Success Rate vs Episode Horizon</strong> (PGFPlots кривые с доверительными интервалами).</li>
+            <li><strong>2D Maze Trajectory Overlays</strong> (отрисовка траекторий агентов поверх карты лабиринта).</li>
+            <li><strong>Pareto Frontier: Performance vs Decision Latency</strong> (доказательство эффективности дистиллированной MLP).</li>
+            <li><strong>Ablation Study: Bisection Depth & Graph Landmark Count</strong> ($N \in \{250, 500, 1000, 2000\}$).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>✅ Автоматическая проверка отчёта</h3>
+          <ul style="margin-left: 1.25rem; font-size: 0.9rem;">
+            <li>Скрипт <code>scripts/export_report_data.py</code> напрямую считывает <code>eval.csv</code> и инжектирует числа в <code>report/main.tex</code>.</li>
+            <li>Исключён риск расхождения между реальными логами и текстом статьи.</li>
+            <li>Компиляция через <code>lualatex</code> проверяется в CI-пайплайне.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>FB-RL Multi-Subgoal Planning Framework • Сгенерировано Antigravity AI Orchestrator • 2026</p>
+    </footer>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      updateThemeButton(isDark);
+    }
+
+    function updateThemeButton(isDark) {
+      document.getElementById('themeIcon').textContent = isDark ? '☀️' : '🌙';
+      document.getElementById('themeLabel').textContent = isDark ? 'Светлая' : 'Тёмная';
+    }
+
+    updateThemeButton(document.documentElement.classList.contains('dark'));
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      
+      document.getElementById(tabId).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    function updateProgress() {
+      const checkboxes = document.querySelectorAll('.task-item input[type="checkbox"]');
+      const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+      console.log(`Progress: ${checked}/${checkboxes.length} tasks completed.`);
+    }
+  </script>
+</body>
+</html>

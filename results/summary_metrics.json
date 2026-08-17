@@ -1,0 +1,90 @@
+{
+  "Baseline (Single-Intention)": {
+    "success_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0
+    },
+    "steps_to_goal": {
+      "mean": 600.0,
+      "std": 0.0,
+      "ci_lower": 600.0,
+      "ci_upper": 600.0
+    },
+    "latency_ms": {
+      "mean": 0.0024510204879334197,
+      "std": 0.00021047434762228598,
+      "ci_lower": 0.002259509772799599,
+      "ci_upper": 0.002610661615375041
+    },
+    "p_value_vs_baseline": null,
+    "n_seeds": 5
+  },
+  "Branch 1: Recursive Bisection": {
+    "success_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0
+    },
+    "steps_to_goal": {
+      "mean": 600.0,
+      "std": 0.0,
+      "ci_lower": 600.0,
+      "ci_upper": 600.0
+    },
+    "latency_ms": {
+      "mean": 0.03614012595304909,
+      "std": 0.0015997227818951355,
+      "ci_lower": 0.03499591919050242,
+      "ci_upper": 0.037619956748676485
+    },
+    "p_value_vs_baseline": NaN,
+    "n_seeds": 5
+  },
+  "Branch 2: Buffer Graph (Dijkstra)": {
+    "success_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0
+    },
+    "steps_to_goal": {
+      "mean": 600.0,
+      "std": 0.0,
+      "ci_lower": 600.0,
+      "ci_upper": 600.0
+    },
+    "latency_ms": {
+      "mean": 0.022820123106551668,
+      "std": 0.0012807438216411145,
+      "ci_lower": 0.02183063956409266,
+      "ci_upper": 0.023989997733345567
+    },
+    "p_value_vs_baseline": NaN,
+    "n_seeds": 5
+  },
+  "Branch 3: Distilled Latent MLP": {
+    "success_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0
+    },
+    "steps_to_goal": {
+      "mean": 600.0,
+      "std": 0.0,
+      "ci_lower": 600.0,
+      "ci_upper": 600.0
+    },
+    "latency_ms": {
+      "mean": 0.08168867035613706,
+      "std": 0.009972637019006915,
+      "ci_lower": 0.07515979240221592,
+      "ci_upper": 0.09176573896450765
+    },
+    "p_value_vs_baseline": NaN,
+    "n_seeds": 5
+  }
+}
