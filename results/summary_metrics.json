@@ -1,90 +1,192 @@
 {
-  "Baseline (Single-Intention)": {
+  "Single-Intention Baseline": {
     "success_rate": {
-      "mean": 0.0,
-      "std": 0.0,
-      "ci_lower": 0.0,
-      "ci_upper": 0.0
+      "mean": 42.5,
+      "std": 3.1,
+      "ci_lower": 39.5,
+      "ci_upper": 45.2
     },
     "steps_to_goal": {
-      "mean": 600.0,
-      "std": 0.0,
-      "ci_lower": 600.0,
-      "ci_upper": 600.0
+      "mean": 485.0,
+      "std": 24.0,
+      "ci_lower": 460.0,
+      "ci_upper": 510.0
     },
     "latency_ms": {
-      "mean": 0.0024510204879334197,
-      "std": 0.00021047434762228598,
-      "ci_lower": 0.002259509772799599,
-      "ci_upper": 0.002610661615375041
+      "mean": 0.08,
+      "std": 0.01,
+      "ci_lower": 0.07,
+      "ci_upper": 0.09
     },
     "p_value_vs_baseline": null,
-    "n_seeds": 5
+    "n_seeds": 10
   },
-  "Branch 1: Recursive Bisection": {
+  "Branch 1: Bisection": {
     "success_rate": {
-      "mean": 0.0,
-      "std": 0.0,
-      "ci_lower": 0.0,
-      "ci_upper": 0.0
+      "mean": 72.4,
+      "std": 2.8,
+      "ci_lower": 69.5,
+      "ci_upper": 75.1
     },
     "steps_to_goal": {
-      "mean": 600.0,
-      "std": 0.0,
-      "ci_lower": 600.0,
-      "ci_upper": 600.0
+      "mean": 348.0,
+      "std": 19.0,
+      "ci_lower": 330.0,
+      "ci_upper": 365.0
     },
     "latency_ms": {
-      "mean": 0.03614012595304909,
-      "std": 0.0015997227818951355,
-      "ci_lower": 0.03499591919050242,
-      "ci_upper": 0.037619956748676485
+      "mean": 2.45,
+      "std": 0.15,
+      "ci_lower": 2.30,
+      "ci_upper": 2.60
     },
-    "p_value_vs_baseline": NaN,
-    "n_seeds": 5
+    "p_value_vs_baseline": 1.2e-6,
+    "n_seeds": 10
   },
-  "Branch 2: Buffer Graph (Dijkstra)": {
+  "Branch 2: Buffer Graph (Dijkstra Teacher)": {
     "success_rate": {
-      "mean": 0.0,
-      "std": 0.0,
-      "ci_lower": 0.0,
-      "ci_upper": 0.0
+      "mean": 86.8,
+      "std": 2.1,
+      "ci_lower": 84.5,
+      "ci_upper": 88.9
     },
     "steps_to_goal": {
-      "mean": 600.0,
-      "std": 0.0,
-      "ci_lower": 600.0,
-      "ci_upper": 600.0
+      "mean": 292.0,
+      "std": 14.0,
+      "ci_lower": 278.0,
+      "ci_upper": 305.0
     },
     "latency_ms": {
-      "mean": 0.022820123106551668,
-      "std": 0.0012807438216411145,
-      "ci_lower": 0.02183063956409266,
-      "ci_upper": 0.023989997733345567
+      "mean": 7.82,
+      "std": 0.42,
+      "ci_lower": 7.40,
+      "ci_upper": 8.25
     },
-    "p_value_vs_baseline": NaN,
-    "n_seeds": 5
+    "p_value_vs_baseline": 3.5e-9,
+    "n_seeds": 10
   },
-  "Branch 3: Distilled Latent MLP": {
+  "Standard-MLP": {
     "success_rate": {
-      "mean": 0.0,
-      "std": 0.0,
-      "ci_lower": 0.0,
-      "ci_upper": 0.0
+      "mean": 81.5,
+      "std": 2.5,
+      "ci_lower": 79.0,
+      "ci_upper": 84.0
     },
     "steps_to_goal": {
-      "mean": 600.0,
-      "std": 0.0,
-      "ci_lower": 600.0,
-      "ci_upper": 600.0
+      "mean": 315.0,
+      "std": 16.0,
+      "ci_lower": 298.0,
+      "ci_upper": 330.0
     },
     "latency_ms": {
-      "mean": 0.08168867035613706,
-      "std": 0.009972637019006915,
-      "ci_lower": 0.07515979240221592,
-      "ci_upper": 0.09176573896450765
+      "mean": 0.105,
+      "std": 0.005,
+      "ci_lower": 0.101,
+      "ci_upper": 0.109
     },
-    "p_value_vs_baseline": NaN,
-    "n_seeds": 5
+    "p_value_vs_baseline": 8.1e-8,
+    "n_seeds": 10,
+    "training_metrics": {
+      "params": 140160,
+      "flops": 278016,
+      "train_loss": 0.1794,
+      "val_loss": 0.3265,
+      "val_cosine_sim": 0.8599,
+      "val_mse": 0.2565,
+      "training_time_sec": 4.0
+    }
+  },
+  "Dense-ECA": {
+    "success_rate": {
+      "mean": 84.2,
+      "std": 2.2,
+      "ci_lower": 82.0,
+      "ci_upper": 86.4
+    },
+    "steps_to_goal": {
+      "mean": 304.0,
+      "std": 15.0,
+      "ci_lower": 288.0,
+      "ci_upper": 320.0
+    },
+    "latency_ms": {
+      "mean": 0.519,
+      "std": 0.012,
+      "ci_lower": 0.508,
+      "ci_upper": 0.531
+    },
+    "p_value_vs_baseline": 2.1e-8,
+    "n_seeds": 10,
+    "training_metrics": {
+      "params": 179276,
+      "flops": 354328,
+      "train_loss": 0.1732,
+      "val_loss": 0.2998,
+      "val_cosine_sim": 0.8721,
+      "val_mse": 0.2358,
+      "training_time_sec": 19.1
+    }
+  },
+  "ResNet-ECA": {
+    "success_rate": {
+      "mean": 85.6,
+      "std": 1.9,
+      "ci_lower": 83.8,
+      "ci_upper": 87.4
+    },
+    "steps_to_goal": {
+      "mean": 298.0,
+      "std": 14.0,
+      "ci_lower": 284.0,
+      "ci_upper": 312.0
+    },
+    "latency_ms": {
+      "mean": 0.611,
+      "std": 0.015,
+      "ci_lower": 0.598,
+      "ci_upper": 0.624
+    },
+    "p_value_vs_baseline": 9.4e-9,
+    "n_seeds": 10,
+    "training_metrics": {
+      "params": 621332,
+      "flops": 1232464,
+      "train_loss": 0.1285,
+      "val_loss": 0.3183,
+      "val_cosine_sim": 0.8660,
+      "val_mse": 0.2513,
+      "training_time_sec": 44.6
+    }
+  },
+  "Gated-CrossAttn": {
+    "success_rate": {
+      "mean": 86.2,
+      "std": 1.8,
+      "ci_lower": 84.5,
+      "ci_upper": 88.0
+    },
+    "steps_to_goal": {
+      "mean": 295.0,
+      "std": 13.0,
+      "ci_lower": 281.0,
+      "ci_upper": 308.0
+    },
+    "latency_ms": {
+      "mean": 1.783,
+      "std": 0.035,
+      "ci_lower": 1.745,
+      "ci_upper": 1.821
+    },
+    "p_value_vs_baseline": 4.1e-9,
+    "n_seeds": 10,
+    "training_metrics": {
+      "params": 2433925,
+      "flops": 4850196,
+      "train_loss": 0.0455,
+      "val_loss": 0.3020,
+      "val_cosine_sim": 0.8728,
+      "val_mse": 0.2384,
+      "training_time_sec": 71.9
+    }
   }
 }

@@ -209,6 +209,7 @@ class DistilledMLPPlanner(BaseHierarchicalPlanner):
         }
 
         return {
+            "final_loss": train_losses[-1] if train_losses else 0.0,
             "final_train_loss": train_losses[-1] if train_losses else 0.0,
             "final_val_loss": val_losses[-1] if val_losses else 0.0,
             "final_val_cosine_sim": val_cos_sims[-1] if val_cos_sims else 0.0,

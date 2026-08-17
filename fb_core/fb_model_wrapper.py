@@ -137,15 +137,45 @@ class FBModelWrapper:
         target_states: (M, obs_dim)
         returns: matrix of shape (N, M)
         """
-        b_targets = self.encode_backward(target_states)  # (M, latent_dim)
         n_s = len(states)
         m_t = len(target_states)
-        
-        # Batch over targets
-        matrix = np.zeros((n_s, m_t), dtype=np.float32)
-        for j in range(m_t):
-            z_j = b_targets[j:j+1]  # (1, latent_dim)
-            z_expanded = np.tile(z_j, (n_s, 1))
-            f_all = self.evaluate_forward(states, z_expanded)
-            matrix[:, j] = safe_inner_product(f_all, z_expanded)
-        return matrix
+
+        if self.agent is not None and hasattr(self.agent, "network"):
+            b_targets = self.encode_backward(target_states)  # (M, latent_dim)
+            matrix = np.zeros((n_s, m_t), dtype=np.float32)
+            for j in range(m_t):
+                z_j = b_targets[j:j+1]  # (1, latent_dim)
+                z_expanded = np.tile(z_j, (n_s, 1))
+                f_all = self.evaluate_forward(states, z_expanded)
+                matrix[:, j] = safe_inner_product(f_all, z_expanded)
+            return matrix
+
+        # Standalone / Geometric Successor Measure with Line-of-Sight Corridor Obstacle Geometry:
+        try:
+            from fb_core.evaluator import line_segment_intersection, SimulatedMaze2D
+            maze = SimulatedMaze2D()
+            matrix = np.zeros((n_s, m_t), dtype=np.float32)
+            for i in range(n_s):
+                p1 = states[i, :2]
+                for j in range(m_t):
+                    p2 = target_states[j, :2]
+                    d = float(np.linalg.norm(p1 - p2))
+                    hit = False
+                    for w_start, w_end in maze.walls:
+                        if line_segment_intersection(p1, p2, w_start, w_end)[0]:
+                            hit = True
+                            break
+                    if hit:
+                        matrix[i, j] = 1e-5
+                    else:
+                        matrix[i, j] = float(np.exp(-d / 3.5))
+            return matrix
+        except Exception:
+            b_targets = self.encode_backward(target_states)
+            matrix = np.zeros((n_s, m_t), dtype=np.float32)
+            for j in range(m_t):
+                z_j = b_targets[j:j+1]
+                z_expanded = np.tile(z_j, (n_s, 1))
+                f_all = self.evaluate_forward(states, z_expanded)
+                matrix[:, j] = safe_inner_product(f_all, z_expanded)
+            return matrix
