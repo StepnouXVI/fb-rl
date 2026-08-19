@@ -25,18 +25,34 @@ from src.metrics import aggregate_runs, export_latex_table
 
 # ponytail: Top-level worker function for parallel multi-process evaluation
 def _evaluate_worker(args):
-    method_name, planner_type, seed, checkpoint_dir, split, env_name, num_episodes, eval_temperature, device = args
-    agent, env, train_ds, _, fb_cfg = load_pretrained_agent(checkpoint_dir, split, seed=seed)
-    evaluator = ZeroShotEvaluator(env, agent, train_ds, fb_cfg, env_name=env_name)
+    method_name, planner_type, seed, checkpoint_dir, split, env_name, num_episodes, eval_temperature, device, max_episode_steps, planner_cfg = args
+    agent, env, train_ds, _, fb_cfg = load_pretrained_agent(checkpoint_dir, split, seed=seed, max_episode_steps=max_episode_steps)
+    evaluator = ZeroShotEvaluator(env, agent, train_ds, fb_cfg, env_name=env_name, max_episode_steps=max_episode_steps)
 
     if planner_type == "baseline":
-        planner = BaselinePlanner(agent, dataset_states=train_ds["observations"], use_high_actor=True, name=method_name)
+        planner = BaselinePlanner(
+            agent,
+            dataset_states=train_ds["observations"],
+            use_high_actor=planner_cfg.get("use_high_actor", True),
+            name=method_name,
+        )
     elif planner_type == "recursive_bisection":
-        planner = RecursiveBisectionPlanner(agent, train_ds["observations"], max_depth=2, n_candidates=200, hit_threshold=35.0, name=method_name)
+        planner = RecursiveBisectionPlanner(
+            agent,
+            train_ds["observations"],
+            max_depth=planner_cfg.get("max_depth", 2),
+            n_candidates=planner_cfg.get("n_candidates", 200),
+            hit_threshold=planner_cfg.get("hit_threshold", 35.0),
+            name=method_name,
+        )
     elif planner_type == "buffer_graph":
         planner = BufferGraphPlanner(
             agent,
             dataset_states=train_ds["observations"],
+            n_landmarks=planner_cfg.get("n_landmarks", 1000),
+            max_edge_radius=planner_cfg.get("max_edge_radius", 3.5),
+            reachability_cutoff=planner_cfg.get("reachability_cutoff", 35.0),
+            lookahead_dist=planner_cfg.get("lookahead_dist", 2.6),
             name=method_name,
         )
     elif planner_type == "distilled_mlp":
@@ -51,7 +67,11 @@ def _evaluate_worker(args):
         raise ValueError(f"Unknown planner type: {planner_type}")
 
     summary = evaluator.evaluate_all_tasks(
-        planner, num_episodes=num_episodes, eval_temperature=eval_temperature, seed=seed
+        planner,
+        num_episodes=num_episodes,
+        eval_temperature=eval_temperature,
+        seed=seed,
+        max_episode_steps=max_episode_steps,
     )
     return method_name, seed, summary
 
@@ -60,14 +80,20 @@ def _evaluate_worker(args):
 def main(cfg: DictConfig):
     print(f"=== Ultra-Fast Multi-Subgoal FB Planning Parallel Benchmark on {cfg.env.name} ===")
     print(f"Seeds: {list(cfg.eval.seeds)} | Episodes per task: {cfg.eval.num_episodes} | Workers: {cfg.eval.n_workers}")
+    if hasattr(cfg.env, "max_episode_steps") and cfg.env.max_episode_steps is not None:
+        print(f"Max Episode Steps: {cfg.env.max_episode_steps}")
     os.makedirs(cfg.eval.output_dir, exist_ok=True)
+
+    from omegaconf import OmegaConf
+    planner_cfg_dict = OmegaConf.to_container(cfg.planner, resolve=True) if hasattr(cfg, "planner") else {}
+    n_landmarks = int(planner_cfg_dict.get("n_landmarks", 1000))
 
     # Save sampled landmark coordinates for visualization
     _, _, sample_ds, _, _ = load_pretrained_agent(str(cfg.eval.checkpoint_dir), str(cfg.env.split), seed=0)
     rng = np.random.default_rng(42)
-    lm_idxs = rng.choice(len(sample_ds["observations"]), size=1000, replace=False)
+    lm_idxs = rng.choice(len(sample_ds["observations"]), size=min(n_landmarks, len(sample_ds["observations"])), replace=False)
     df_landmarks = pd.DataFrame({
-        "landmark_id": range(1000),
+        "landmark_id": range(len(lm_idxs)),
         "x": sample_ds["observations"][lm_idxs, 0],
         "y": sample_ds["observations"][lm_idxs, 1],
     })
@@ -90,6 +116,8 @@ def main(cfg: DictConfig):
     else:
         target_planners = planner_map
 
+    max_ep_steps = int(cfg.env.max_episode_steps) if hasattr(cfg.env, "max_episode_steps") and cfg.env.max_episode_steps is not None else None
+
     # Prepare job queue
     jobs = []
     for method_name, planner_type in target_planners.items():
@@ -104,6 +132,8 @@ def main(cfg: DictConfig):
                 int(cfg.eval.num_episodes),
                 float(cfg.eval.eval_temperature),
                 str(cfg.eval.device),
+                max_ep_steps,
+                planner_cfg_dict,
             ))
 
     print(f"Total parallel jobs to execute: {len(jobs)}")

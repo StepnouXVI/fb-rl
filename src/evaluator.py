@@ -10,12 +10,13 @@ from utils.evaluation import supply_rng, flatten
 
 # ponytail: High-performance deterministic evaluation engine with full trajectory & waypoint logging
 class ZeroShotEvaluator:
-    def __init__(self, env, agent, dataset_dict, config, env_name="ogbench-antmaze-medium-navigate-v0"):
+    def __init__(self, env, agent, dataset_dict, config, env_name="ogbench-antmaze-medium-navigate-v0", max_episode_steps=None):
         self.env = env
         self.agent = agent
         self.dataset_dict = dataset_dict
         self.config = config
         self.env_name = env_name
+        self.max_episode_steps = max_episode_steps
         self.inferred_latents_cache = {}
 
     def get_inferred_latent(self, task_id, seed=0):
@@ -40,7 +41,8 @@ class ZeroShotEvaluator:
         self.inferred_latents_cache[cache_key] = inferred_latent
         return inferred_latent
 
-    def evaluate_task(self, planner, task_id, num_episodes=15, eval_temperature=0.0, seed=0):
+    def evaluate_task(self, planner, task_id, num_episodes=15, eval_temperature=0.0, seed=0, max_episode_steps=None):
+        max_steps = max_episode_steps or self.max_episode_steps
         inferred_latent = self.get_inferred_latent(task_id, seed=seed)
 
         stats = defaultdict(list)
@@ -100,6 +102,8 @@ class ZeroShotEvaluator:
 
                 next_obs, reward, terminated, truncated, info = self.env.step(action)
                 step += 1
+                if max_steps is not None and step >= max_steps:
+                    truncated = True
                 done = terminated or truncated
                 traj.append(next_obs[:2].copy())
                 obs = next_obs
@@ -141,7 +145,7 @@ class ZeroShotEvaluator:
         mean_stats["latency_ms"] = float(np.mean(latencies)) if latencies else 0.0
         return mean_stats, trajectories, trajectory_records, subgoal_records
 
-    def evaluate_all_tasks(self, planner, num_episodes=15, eval_temperature=0.0, seed=0):
+    def evaluate_all_tasks(self, planner, num_episodes=15, eval_temperature=0.0, seed=0, max_episode_steps=None):
         task_infos = self.env.unwrapped.task_infos if hasattr(self.env.unwrapped, "task_infos") else self.env.task_infos
         num_tasks = len(task_infos)
 
@@ -158,6 +162,7 @@ class ZeroShotEvaluator:
                 num_episodes=num_episodes,
                 eval_temperature=eval_temperature,
                 seed=seed,
+                max_episode_steps=max_episode_steps,
             )
             for k, v in task_stats.items():
                 all_metrics[k].append(v)

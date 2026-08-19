@@ -1,26 +1,4 @@
 {
-  "Single-Intention Baseline": {
-    "success_rate": {
-      "mean": 82.66666666666666,
-      "std": 0.0,
-      "ci_lower": 82.66666666666666,
-      "ci_upper": 82.66666666666666
-    },
-    "mean_length": {
-      "mean": 525.8933333333333,
-      "std": 0.0,
-      "ci_lower": 525.8933333333333,
-      "ci_upper": 525.8933333333333
-    },
-    "latency_ms": {
-      "mean": 1.476551476343612,
-      "std": 0.0,
-      "ci_lower": 1.476551476343612,
-      "ci_upper": 1.476551476343612
-    },
-    "p_value_vs_baseline": null,
-    "n_seeds": 1
-  },
   "Buffer Graph Dijkstra (Branch 2)": {
     "success_rate": {
       "mean": 93.33333333333333,
@@ -35,10 +13,32 @@
       "ci_upper": 472.0533333333333
     },
     "latency_ms": {
-      "mean": 1.3087976166861,
+      "mean": 0.996907150041371,
       "std": 0.0,
-      "ci_lower": 1.3087976166861,
-      "ci_upper": 1.3087976166861
+      "ci_lower": 0.996907150041371,
+      "ci_upper": 0.996907150041371
+    },
+    "p_value_vs_baseline": null,
+    "n_seeds": 1
+  },
+  "Single-Intention Baseline": {
+    "success_rate": {
+      "mean": 82.66666666666666,
+      "std": 0.0,
+      "ci_lower": 82.66666666666666,
+      "ci_upper": 82.66666666666666
+    },
+    "mean_length": {
+      "mean": 525.8933333333333,
+      "std": 0.0,
+      "ci_lower": 525.8933333333333,
+      "ci_upper": 525.8933333333333
+    },
+    "latency_ms": {
+      "mean": 1.1546539942655012,
+      "std": 0.0,
+      "ci_lower": 1.1546539942655012,
+      "ci_upper": 1.1546539942655012
     },
     "p_value_vs_baseline": null,
     "n_seeds": 1

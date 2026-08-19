@@ -4,7 +4,7 @@ from utils.datasets import HGCDataset
 from agents.fbpiswitch import FBpiSwitchAgent, get_config
 
 # ponytail: One clean loader function for restoring baseline agent and env
-def load_pretrained_agent(checkpoint_dir="fb-test", split="medium", seed=0):
+def load_pretrained_agent(checkpoint_dir="fb-test", split="medium", seed=0, max_episode_steps=None):
     cfg_path = os.path.join(checkpoint_dir, split, "flags.json")
     params_path = os.path.join(checkpoint_dir, split, "params.pkl")
     if not os.path.exists(cfg_path) or not os.path.exists(params_path):
@@ -12,7 +12,7 @@ def load_pretrained_agent(checkpoint_dir="fb-test", split="medium", seed=0):
 
     with open(cfg_path, "r") as f:
         saved_flags = json.load(f)
-    
+
     config = get_config()
     config.update(saved_flags["agent"])
     env_name = saved_flags.get("env_name", f"ogbench-antmaze-{split}-navigate-v0")
@@ -21,6 +21,13 @@ def load_pretrained_agent(checkpoint_dir="fb-test", split="medium", seed=0):
         env_name, frame_stack=config["frame_stack"], add_info=True
     )
     env.unwrapped._add_noise_to_goal = False
+
+    if max_episode_steps is not None:
+        curr = env
+        while curr is not None:
+            if hasattr(curr, "_max_episode_steps"):
+                curr._max_episode_steps = int(max_episode_steps)
+            curr = getattr(curr, "env", None)
 
     hgc_dataset = HGCDataset(train_dataset, config)
     ex_batch = hgc_dataset.sample(1)
