@@ -36,12 +36,11 @@ def _evaluate_worker(args):
     elif planner_type == "buffer_graph":
         planner = BufferGraphPlanner(
             agent,
-            train_ds["observations"],
-            maze_map=env.unwrapped.maze_map,
+            dataset_states=train_ds["observations"],
             n_landmarks=400,
-            max_edge_radius=5.5,
+            max_edge_radius=4.5,
             reachability_cutoff=20.0,
-            wp_switch_dist=3.5,
+            wp_switch_dist=3.2,
             name=method_name,
         )
     elif planner_type == "distilled_mlp":
@@ -131,13 +130,14 @@ def main(cfg: DictConfig):
                 "success_rate": summary["success_rate"],
                 "mean_length": summary["mean_length"],
                 "latency_ms": summary["latency_ms"],
+                "self_intersections": summary.get("self_intersections", 0.0),
             })
             if "trajectory_records" in summary:
                 all_trajectories.extend(summary["trajectory_records"])
             if "subgoal_records" in summary:
                 all_subgoals.extend(summary["subgoal_records"])
 
-            pbar.write(f"[{method_name}] Seed {seed}: Success = {summary['success_rate']:.1f}%, Steps = {summary['mean_length']:.1f}, Latency = {summary['latency_ms']:.2f} ms")
+            pbar.write(f"[{method_name}] Seed {seed}: Success = {summary['success_rate']:.1f}%, Steps = {summary['mean_length']:.1f}, Loops/Crossings = {summary.get('self_intersections', 0.0):.1f}, Latency = {summary['latency_ms']:.2f} ms")
 
     # Aggregate statistics
     aggregated = aggregate_runs(results_by_method, baseline_name="Single-Intention Baseline")

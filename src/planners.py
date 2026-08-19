@@ -57,7 +57,7 @@ def _jit_decode_latent_to_coords(latent, landmark_latents):
 
 
 # ==========================================
-# Optimized Planner Classes
+# Pure FB Planner Classes (Zero Maze Map Access)
 # ==========================================
 
 class BasePlanner:
@@ -129,19 +129,20 @@ class BaselinePlanner(BasePlanner):
 
 class BufferGraphPlanner(BasePlanner):
     """
-    Obstacle-Free Topological Graph Planner with Raycast String-Pulling Shortcut Simplification,
-    Dynamic Line-of-Sight Skipping, and Direct Low-Actor Goal Locking.
+    Pure Forward-Backward Graph Dijkstra Planner.
+    Extracts topological connectivity, distances, and corridor transitions purely from
+    the learned FB representations and replay buffer observations (100% Zero Map Knowledge).
     """
     def __init__(
         self,
         agent,
         dataset_states,
-        maze_map=None,
         n_landmarks=400,
-        max_edge_radius=5.5,
+        max_edge_radius=4.5,
         reachability_cutoff=20.0,
-        wp_switch_dist=3.5,
+        wp_switch_dist=3.2,
         name="Buffer Graph Dijkstra",
+        **kwargs,
     ):
         super().__init__(agent, name=name)
         self.n_landmarks = min(n_landmarks, len(dataset_states))
@@ -149,27 +150,7 @@ class BufferGraphPlanner(BasePlanner):
         self.reachability_cutoff = reachability_cutoff
         self.wp_switch_dist = wp_switch_dist
 
-        # 1. Parse maze walls for obstacle-free line-of-sight validation
-        if maze_map is None:
-            maze_map = np.array([
-                [1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 0, 0, 1, 1, 0, 0, 1],
-                [1, 0, 0, 1, 0, 0, 0, 1],
-                [1, 1, 0, 0, 0, 1, 1, 1],
-                [1, 0, 0, 1, 0, 0, 0, 1],
-                [1, 0, 1, 0, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1, 0, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1],
-            ])
-        self.wall_boxes = []
-        for i in range(maze_map.shape[0]):
-            for j in range(maze_map.shape[1]):
-                if maze_map[i, j] == 1:
-                    cx = (j - 1) * 4.0
-                    cy = (i - 1) * 4.0
-                    self.wall_boxes.append((cx - 2.0, cx + 2.0, cy - 2.0, cy + 2.0))
-
-        # 2. Sample landmarks uniformly across dataset
+        # 1. Sample landmarks uniformly from offline dataset
         rng = np.random.default_rng(42)
         idxs = rng.choice(len(dataset_states), size=self.n_landmarks, replace=False)
         self.landmarks = jnp.asarray(dataset_states[idxs])
@@ -178,8 +159,8 @@ class BufferGraphPlanner(BasePlanner):
             agent.normalize_z(agent.network.select("backward_repr")(self.landmarks))
         )
 
-        # 3. Build connectivity graph with obstacle avoidance & Precompute APSP
-        self.cost_matrix, self.max_diag = self._build_graph()
+        # 2. Build graph strictly from learned FB reachability
+        self.cost_matrix, self.reach_matrix = self._build_graph()
         self.all_dist, self.all_pred = dijkstra(
             self.cost_matrix, directed=True, return_predecessors=True
         )
@@ -189,20 +170,6 @@ class BufferGraphPlanner(BasePlanner):
         self.current_idx = 0
         self.steps_on_wp = 0
         self.pos_history = []
-
-    def has_los(self, p1, p2, margin=0.45):
-        p1 = np.asarray(p1)
-        p2 = np.asarray(p2)
-        dist = np.linalg.norm(p2 - p1)
-        n_samples = max(10, int(dist * 5))
-        ts = np.linspace(0.0, 1.0, n_samples)
-        xs = p1[0] + ts * (p2[0] - p1[0])
-        ys = p1[1] + ts * (p2[1] - p1[1])
-        for x, y in zip(xs, ys):
-            for xmin, xmax, ymin, ymax in self.wall_boxes:
-                if (xmin - margin) <= x <= (xmax + margin) and (ymin - margin) <= y <= (ymax + margin):
-                    return False
-        return True
 
     def _build_graph(self):
         n = len(self.landmarks)
@@ -221,17 +188,11 @@ class BufferGraphPlanner(BasePlanner):
         normalized = np.clip(reach_matrix / max_diag, 1e-6, 1.0)
         cost_matrix = np.maximum(0.0, -np.log(normalized))
 
+        # Topology filtering purely from local observation radius and FB reachability
         cost_matrix[dists_euclid > self.max_edge_radius] = np.inf
         cost_matrix[reach_matrix < self.reachability_cutoff] = np.inf
-
-        for i in range(n):
-            for j in range(n):
-                if cost_matrix[i, j] < np.inf and i != j:
-                    if not self.has_los(self.landmark_coords[i], self.landmark_coords[j], margin=0.45):
-                        cost_matrix[i, j] = np.inf
-
         np.fill_diagonal(cost_matrix, 0.0)
-        return cost_matrix, max_diag
+        return cost_matrix, reach_matrix
 
     def _plan(self, obs, goal_z):
         obs_xy = np.asarray(obs[:2])
@@ -255,46 +216,59 @@ class BufferGraphPlanner(BasePlanner):
         else:
             path = [start_idx, goal_idx]
 
-        # Explicit paired list: [(coord, latent), ...]
+        coords = [self.landmark_coords[i] for i in path]
+
+        # RDP trajectory simplification to extract corner turnpoints along corridors
+        def rdp(pts, epsilon=0.9, max_len=4.5):
+            if len(pts) <= 2:
+                return pts
+            dmax, index = 0.0, 0
+            p1, p2 = pts[0], pts[-1]
+            line_vec = p2 - p1
+            line_len = np.linalg.norm(line_vec)
+            if line_len < 1e-6:
+                return [p1, p2]
+            line_unit = line_vec / line_len
+
+            for i in range(1, len(pts) - 1):
+                v = pts[i] - p1
+                proj = np.dot(v, line_unit)
+                d = np.linalg.norm(v - proj * line_unit)
+                if d > dmax:
+                    index, dmax = i, d
+            if dmax > epsilon or line_len > max_len:
+                res1 = rdp(pts[:index+1], epsilon, max_len)
+                res2 = rdp(pts[index:], epsilon, max_len)
+                return res1[:-1] + res2
+            else:
+                return [p1, p2]
+
+        simplified_coords = rdp(coords, epsilon=0.9, max_len=4.5)
+
         pairs = []
-        for i in path:
-            pairs.append((self.landmark_coords[i], self.landmark_latents[i]))
+        for c in simplified_coords:
+            idx = int(np.argmin(np.linalg.norm(self.landmark_coords - c, axis=-1)))
+            pairs.append((self.landmark_coords[idx], self.landmark_latents[idx]))
         pairs.append((self.landmark_coords[goal_idx], goal_z))
 
-        # Raycast String-Pulling Shortcut Algorithm
-        smooth_pairs = [pairs[0]]
-        curr_i = 0
-        n = len(pairs)
-        while curr_i < n - 1:
-            furthest = curr_i + 1
-            for k in range(n - 1, curr_i, -1):
-                if self.has_los(pairs[curr_i][0], pairs[k][0], margin=0.45):
-                    furthest = k
-                    break
-            curr_i = furthest
-            smooth_pairs.append(pairs[curr_i])
-
-        # If ant already has line-of-sight to a later waypoint in smooth_pairs, start directly from it
+        # Start from forward waypoint (skip backwards start hook)
         start_wp_idx = 0
-        for k in range(len(smooth_pairs) - 1, -1, -1):
-            if self.has_los(obs_xy, smooth_pairs[k][0], margin=0.45):
-                start_wp_idx = k
-                break
+        if len(pairs) > 1:
+            v01 = pairs[1][0] - pairs[0][0]
+            v_ant = pairs[0][0] - obs_xy
+            if np.dot(v_ant, v01) < 0 or np.linalg.norm(obs_xy - pairs[1][0]) < np.linalg.norm(obs_xy - pairs[0][0]):
+                start_wp_idx = 1
 
-        exec_pairs = smooth_pairs[start_wp_idx:]
-        if len(exec_pairs) == 0 or exec_pairs[-1][1] is not goal_z:
-            exec_pairs.append((pairs[-1][0], goal_z))
-
+        exec_pairs = pairs[start_wp_idx:]
         self.waypoint_coords = [p[0].tolist() if isinstance(p[0], np.ndarray) else p[0] for p in exec_pairs]
         self.waypoints = [p[1] for p in exec_pairs]
+        self.current_idx = 0
+        self.steps_on_wp = 0
         self.pos_history = []
         return self.waypoints
 
     def reset(self, obs, goal_z):
         self._plan(obs, goal_z)
-        self.current_idx = 0
-        self.steps_on_wp = 0
-        self.pos_history = []
         self.last_subgoal_info = {
             "subgoal_xy": self.waypoint_coords[0] if self.waypoint_coords else None,
             "waypoints_xy": self.waypoint_coords,
@@ -305,15 +279,6 @@ class BufferGraphPlanner(BasePlanner):
         if not self.waypoints or len(self.waypoint_coords) == 0:
             self.reset(obs, goal_z)
 
-        # 1. Dynamic Line-of-Sight Shortcut: skip ahead if later waypoint is directly visible
-        for k in range(len(self.waypoint_coords) - 1, self.current_idx, -1):
-            if self.has_los(obs[:2], self.waypoint_coords[k], margin=0.45):
-                if k > self.current_idx:
-                    self.current_idx = k
-                    self.steps_on_wp = 0
-                break
-
-        # 2. Progression-based waypoint advancement
         curr_coord = np.asarray(self.waypoint_coords[self.current_idx]) if self.current_idx < len(self.waypoint_coords) else None
         next_coord = np.asarray(self.waypoint_coords[self.current_idx + 1]) if self.current_idx < len(self.waypoint_coords) - 1 else None
 
@@ -324,7 +289,7 @@ class BufferGraphPlanner(BasePlanner):
                 dist_next = float(np.linalg.norm(obs[:2] - next_coord))
                 edge_vec = next_coord - curr_coord
                 proj = float(np.dot(obs[:2] - curr_coord, edge_vec))
-                if dist_curr <= self.wp_switch_dist or dist_next < dist_curr or (proj > 0 and dist_curr < 5.0):
+                if dist_curr <= self.wp_switch_dist or dist_next < dist_curr or (proj > 0 and dist_curr < 4.2):
                     self.current_idx += 1
                     self.steps_on_wp = 0
             else:
@@ -337,7 +302,6 @@ class BufferGraphPlanner(BasePlanner):
         if len(self.pos_history) > 40:
             self.pos_history.pop(0)
 
-        # Subtle unsticking jitter if stuck against wall for > 40 steps with displacement < 0.5m
         is_stuck = False
         if len(self.pos_history) >= 40:
             disp = float(np.linalg.norm(obs[:2] - self.pos_history[0]))
@@ -347,23 +311,17 @@ class BufferGraphPlanner(BasePlanner):
         eval_temp = 0.2 if is_stuck else 0.0
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else None
 
-        # When close to the final goal (dist <= 3.0m), use low actor directly on normalized goal latent
-        # to prevent high-actor backward looping in terminal rooms
+        # Direct low-actor goal locking near terminal target to prevent room looping
         if self.current_idx >= len(self.waypoints) - 1 and dist_curr <= 3.0:
             norm_z = self.agent.normalize_z(jnp.asarray(goal_z)[None, :])
             low_dist = self.agent.network.select("actor")(
                 jnp.asarray(obs)[None, :], norm_z, goal_encoded=True, temperature=eval_temp
             )
-            if eval_temp == 0.0 or seed_k is None:
-                action = low_dist.mode()
-            else:
-                action = low_dist.sample(seed=seed_k)
-            action = jnp.clip(action[0], -1.0, 1.0)
+            action = jnp.clip(low_dist.mode()[0] if eval_temp == 0.0 or seed_k is None else low_dist.sample(seed=seed_k)[0], -1.0, 1.0)
         else:
             action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), curr_wp, seed=seed_k, temperature=eval_temp)
 
         self.steps_on_wp += 1
-
         c = self.waypoint_coords[self.current_idx] if self.current_idx < len(self.waypoint_coords) else None
         self.last_subgoal_info = {
             "subgoal_xy": c,

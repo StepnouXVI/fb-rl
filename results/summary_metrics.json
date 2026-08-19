@@ -13,32 +13,32 @@
       "ci_upper": 629.24
     },
     "latency_ms": {
-      "mean": 1.366559144211752,
+      "mean": 1.3395232073238705,
       "std": 0.0,
-      "ci_lower": 1.366559144211752,
-      "ci_upper": 1.366559144211752
+      "ci_lower": 1.3395232073238705,
+      "ci_upper": 1.3395232073238705
     },
     "p_value_vs_baseline": null,
     "n_seeds": 1
   },
   "Buffer Graph Dijkstra (Branch 2)": {
     "success_rate": {
-      "mean": 80.0,
+      "mean": 76.0,
       "std": 0.0,
-      "ci_lower": 80.0,
-      "ci_upper": 80.0
+      "ci_lower": 76.0,
+      "ci_upper": 76.0
     },
     "mean_length": {
-      "mean": 517.28,
+      "mean": 551.04,
       "std": 0.0,
-      "ci_lower": 517.28,
-      "ci_upper": 517.28
+      "ci_lower": 551.04,
+      "ci_upper": 551.04
     },
     "latency_ms": {
-      "mean": 2.523879876059553,
+      "mean": 1.9235215532833851,
       "std": 0.0,
-      "ci_lower": 2.523879876059553,
-      "ci_upper": 2.523879876059553
+      "ci_lower": 1.9235215532833851,
+      "ci_upper": 1.9235215532833851
     },
     "p_value_vs_baseline": null,
     "n_seeds": 1

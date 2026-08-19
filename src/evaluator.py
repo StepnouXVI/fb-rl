@@ -133,6 +133,10 @@ class ZeroShotEvaluator:
                 stats[k].append(v)
             trajectories.append(np.asarray(traj))
 
+            # Compute self-intersections of the trajectory
+            from tests.test_trajectories import count_self_intersections
+            stats["self_intersections"].append(count_self_intersections(np.asarray(traj)))
+
         mean_stats = {k: float(np.mean(v)) for k, v in stats.items()}
         mean_stats["latency_ms"] = float(np.mean(latencies)) if latencies else 0.0
         return mean_stats, trajectories, trajectory_records, subgoal_records
@@ -166,6 +170,7 @@ class ZeroShotEvaluator:
             "success_rate": float(np.mean(all_metrics["success"]) * 100.0) if "success" in all_metrics else 0.0,
             "mean_length": float(np.mean(all_metrics["episode.length"])) if "episode.length" in all_metrics else 0.0,
             "latency_ms": float(np.mean(all_metrics["latency_ms"])) if "latency_ms" in all_metrics else 0.0,
+            "self_intersections": float(np.mean(all_metrics["self_intersections"])) if "self_intersections" in all_metrics else 0.0,
             "task_successes": [float(s) for s in all_metrics["success"]],
             "trajectories": all_trajs,
             "trajectory_records": all_trajectory_records,
