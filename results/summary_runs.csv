@@ -1,21 +1,11 @@
-method,seed,success_rate,mean_steps,mean_latency_ms
-Baseline (Single-Intention),0,0.0,600.0,0.0025531068919614577
-Baseline (Single-Intention),1,0.0,600.0,0.002676878653195066
-Baseline (Single-Intention),2,0.0,600.0,0.002338806589250453
-Baseline (Single-Intention),3,0.0,600.0,0.0020939545405174917
-Baseline (Single-Intention),4,0.0,600.0,0.00259235576474263
-Branch 1: Recursive Bisection,0,0.0,600.0,0.03906060785326796
-Branch 1: Recursive Bisection,1,0.0,600.0,0.03648890816354348
-Branch 1: Recursive Bisection,2,0.0,600.0,0.03532263154435592
-Branch 1: Recursive Bisection,3,0.0,600.0,0.03539943018404301
-Branch 1: Recursive Bisection,4,0.0,600.0,0.034429052020035066
-Branch 2: Buffer Graph (Dijkstra),0,0.0,600.0,0.02277043898842142
-Branch 2: Buffer Graph (Dijkstra),1,0.0,600.0,0.021514000633032992
-Branch 2: Buffer Graph (Dijkstra),2,0.0,600.0,0.02309856310118145
-Branch 2: Buffer Graph (Dijkstra),3,0.0,600.0,0.025066906377711955
-Branch 2: Buffer Graph (Dijkstra),4,0.0,600.0,0.021650706432410516
-Branch 3: Distilled Latent MLP,0,0.0,600.0,0.08054438325537679
-Branch 3: Distilled Latent MLP,1,0.0,600.0,0.0777866770804394
-Branch 3: Distilled Latent MLP,2,0.0,600.0,0.10110614897954899
-Branch 3: Distilled Latent MLP,3,0.0,600.0,0.07404027783680552
-Branch 3: Distilled Latent MLP,4,0.0,600.0,0.07496586462851458
+method,seed,success_rate,mean_length,latency_ms
+Single-Intention Baseline,0,92.0,492.35999999999996,32.549590650244596
+Single-Intention Baseline,1,84.00000000000001,523.8799999999999,32.60397467746361
+Single-Intention Baseline,3,68.0,570.2,32.77430792882941
+Single-Intention Baseline,2,64.0,635.04,32.33756907916602
+Single-Intention Baseline,4,76.0,510.52,28.09895422491069
+Buffer Graph Dijkstra (Branch 2),1,83.99999999999999,528.48,79.77308272367819
+Buffer Graph Dijkstra (Branch 2),2,72.0,608.9200000000001,88.95634657672551
+Buffer Graph Dijkstra (Branch 2),0,55.99999999999999,689.8,87.61857406254919
+Buffer Graph Dijkstra (Branch 2),3,87.99999999999999,572.5200000000001,98.20536607565347
+Buffer Graph Dijkstra (Branch 2),4,68.0,615.76,79.7215240260375

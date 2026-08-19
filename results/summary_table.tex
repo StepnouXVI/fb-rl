@@ -1,15 +1,13 @@
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
-\caption{Сравнение методов планирования на \texttt{antmaze-medium-navigate-v0} (5 сидов).}
-\label{tab:planning_comparison}
-\begin{tabular}{lccc}
+\small
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Метод} & \textbf{Success Rate (\%)} & \textbf{Шагов до цели} & \textbf{Задержка (мс/шаг)} \\
+\textbf{Hierarchical Planning Method} & \textbf{Success Rate (\%)} & \textbf{Avg Steps} & \textbf{Latency (ms)} & \textbf{p-value} \\
 \midrule
-Baseline (Single-Intention) & 0.0 $\pm$ 0.0 & 600 $\pm$ 0 & 0.00 \\
-Branch 1: Recursive Bisection & 0.0 $\pm$ 0.0 & 600 $\pm$ 0 & 0.04 \\
-Branch 2: Buffer Graph (Dijkstra) & 0.0 $\pm$ 0.0 & 600 $\pm$ 0 & 0.02 \\
-Branch 3: Distilled Latent MLP & 0.0 $\pm$ 0.0 & 600 $\pm$ 0 & 0.08 \\
+Single-Intention Baseline & 76.8 $\pm$ 10.2 & 546.4 $\pm$ 51.3 & 31.67 & -- \\
+Buffer Graph Dijkstra (Branch 2) & 73.6 $\pm$ 11.5 & 603.1 $\pm$ 53.3 & 86.85 & 6.89e-01 \\
 \bottomrule
 \end{tabular}
+\caption{Multi-Subgoal Planning Benchmark on OGBench AntMaze.}
 \end{table}

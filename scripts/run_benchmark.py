@@ -1,144 +1,127 @@
-"""
-Benchmark Runner: Evaluates Baseline + 3 Multi-Subgoal Planners across multiple seeds on OGBench.
-"""
-
-import os
-import argparse
+import os, sys, json, hydra
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from omegaconf import DictConfig
+from src.agent_loader import load_pretrained_agent
+from src.planners import (
+    BaselinePlanner,
+    RecursiveBisectionPlanner,
+    BufferGraphPlanner,
+    DistilledMLPPlanner,
+)
+from src.evaluator import ZeroShotEvaluator
+from src.metrics import aggregate_runs, export_latex_table
 
-from fb_core.fb_model_wrapper import FBModelWrapper
-from fb_core.dataset_sampler import DatasetSampler
-from fb_core.evaluator import EpisodeEvaluator
-from fb_core.metrics_collector import MetricsCollector
+# ponytail: Top-level worker function for parallel multi-process evaluation
+def _evaluate_worker(args):
+    method_name, planner_type, seed, checkpoint_dir, split, env_name, num_episodes, eval_temperature, device = args
+    agent, env, train_ds, _, fb_cfg = load_pretrained_agent(checkpoint_dir, split, seed=seed)
+    evaluator = ZeroShotEvaluator(env, agent, train_ds, fb_cfg, env_name=env_name)
 
-from planners.baseline_planner import SingleIntentionPlanner
-from planners.recursive_bisection import RecursiveBisectionPlanner
-from planners.buffer_graph import BufferGraphPlanner
-from planners.distilled_mlp import DistilledMLPPlanner
+    if planner_type == "baseline":
+        planner = BaselinePlanner(agent, use_high_actor=True, name=method_name)
+    elif planner_type == "recursive_bisection":
+        planner = RecursiveBisectionPlanner(agent, train_ds["observations"], max_depth=2, n_candidates=200, hit_threshold=50.0, name=method_name)
+    elif planner_type == "buffer_graph":
+        planner = BufferGraphPlanner(agent, train_ds["observations"], n_landmarks=300, reachability_cutoff=20.0, hit_threshold=50.0, name=method_name)
+    elif planner_type == "distilled_mlp":
+        distilled_ckpt = os.path.join("results", f"distilled_mlp_{split}.pt")
+        planner = DistilledMLPPlanner(
+            agent,
+            checkpoint_path=distilled_ckpt if os.path.exists(distilled_ckpt) else None,
+            device=device,
+            name=method_name,
+        )
+    else:
+        raise ValueError(f"Unknown planner type: {planner_type}")
+
+    np.random.seed(seed)
+    summary = evaluator.evaluate_all_tasks(
+        planner, num_episodes=num_episodes, eval_temperature=eval_temperature
+    )
+    return method_name, seed, summary
 
 
-def run_benchmarks(
-    env_name: str = "antmaze-medium-navigate-v0",
-    seeds: list = [0, 1, 2, 3, 4],
-    num_episodes: int = 15,
-    output_dir: str = "results",
-):
-    os.makedirs(output_dir, exist_ok=True)
-    clean_env_name = env_name.replace("ogbench-", "")
-    print(f"=== Starting Multi-Subgoal Planning Benchmark on {clean_env_name} ===")
-    print(f"Seeds: {seeds} | Episodes per seed: {num_episodes}")
+@hydra.main(version_base=None, config_path="../configs", config_name="config")
+def main(cfg: DictConfig):
+    print(f"=== Multi-Subgoal FB Planning Parallel Benchmark on {cfg.env.name} ===")
+    print(f"Seeds: {list(cfg.eval.seeds)} | Episodes per task: {cfg.eval.num_episodes} | Workers: {cfg.eval.n_workers}")
+    os.makedirs(cfg.eval.output_dir, exist_ok=True)
 
-    # Load dataset and environment
-    dataset_sampler = DatasetSampler.from_ogbench(env_name=clean_env_name, max_samples=5000, seed=42)
-    fb_model = FBModelWrapper(agent=None, latent_dim=128)
-    evaluator = EpisodeEvaluator(env_name=clean_env_name, max_episode_steps=600)
-
-    # Try loading real OGBench env
-    try:
-        import ogbench
-        env, _, _ = ogbench.make_env_and_datasets(clean_env_name)
-        print(f"[OK] Successfully initialized OGBench environment: {clean_env_name}")
-    except Exception as e:
-        print(f"[Notice] Using synthetic maze environment for benchmark ({e}).")
-        env = None
-
-    # Instantiate Planners
-    planners = {
-        "Baseline (Single-Intention)": SingleIntentionPlanner(fb_model=fb_model),
-        "Branch 1: Recursive Bisection": RecursiveBisectionPlanner(
-            fb_model=fb_model,
-            dataset_sampler=dataset_sampler,
-            max_depth=2,
-            n_candidates=100,
-        ),
-        "Branch 2: Buffer Graph (Dijkstra)": BufferGraphPlanner(
-            fb_model=fb_model,
-            dataset_sampler=dataset_sampler,
-            n_landmarks=80,
-        ),
-        "Branch 3: Distilled Latent MLP": DistilledMLPPlanner(
-            fb_model=fb_model,
-            dataset_sampler=dataset_sampler,
-            device="cpu",
-        ),
+    planner_map = {
+        "Single-Intention Baseline": "baseline",
+        "Recursive Bisection (Branch 1)": "recursive_bisection",
+        "Buffer Graph Dijkstra (Branch 2)": "buffer_graph",
+        "Distilled Latent Policy (Branch 3)": "distilled_mlp",
     }
 
-    # Pre-train distilled MLP planner
-    print("\n--- Training Distilled MLP Planner (Branch 3) ---")
-    planners["Branch 3: Distilled Latent MLP"].train_distillation(
-        graph_planner=planners["Branch 2: Buffer Graph (Dijkstra)"],
-        n_pairs=300,
-        epochs=15,
-    )
+    if cfg.planner.type == "baseline_vs_dijkstra":
+        target_planners = {
+            "Single-Intention Baseline": "baseline",
+            "Buffer Graph Dijkstra (Branch 2)": "buffer_graph",
+        }
+    elif cfg.planner.type != "all" and cfg.planner.name in planner_map:
+        target_planners = {cfg.planner.name: planner_map[cfg.planner.name]}
+    else:
+        target_planners = planner_map
 
+    # Prepare job queue
+    jobs = []
+    for method_name, planner_type in target_planners.items():
+        for seed in cfg.eval.seeds:
+            jobs.append((
+                method_name,
+                planner_type,
+                int(seed),
+                str(cfg.eval.checkpoint_dir),
+                str(cfg.env.split),
+                str(cfg.env.name),
+                int(cfg.eval.num_episodes),
+                float(cfg.eval.eval_temperature),
+                str(cfg.eval.device),
+            ))
+
+    print(f"Total parallel jobs to execute: {len(jobs)}")
     results_by_method = defaultdict(list)
     all_rows = []
 
-    for name, planner in planners.items():
-        slug = name.lower().replace(" ", "_").replace(":", "").replace("(", "").replace(")", "").replace("-", "_")
-        method_dir = os.path.join(output_dir, slug)
-        os.makedirs(method_dir, exist_ok=True)
-        print(f"\nEvaluating {name}...")
-
-        for seed in seeds:
-            res = evaluator.evaluate_planner(
-                planner=planner,
-                fb_model=fb_model,
-                env=env,
-                num_episodes=num_episodes,
-                seed=seed,
-            )
-            results_by_method[name].append(res)
-            
-            # Save single seed CSV
-            seed_df = pd.DataFrame({
-                "episode": list(range(num_episodes)),
-                "success": res["episode_successes"],
-                "steps": res["episode_steps"],
-            })
-            seed_df.to_csv(os.path.join(method_dir, f"eval_seed{seed}.csv"), index=False)
-
+    n_workers = min(int(cfg.eval.n_workers), len(jobs))
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(_evaluate_worker, job): job for job in jobs}
+        pbar = tqdm(as_completed(futures), total=len(jobs), desc="Parallel Benchmark Progress")
+        for fut in pbar:
+            method_name, seed, summary = fut.result()
+            results_by_method[method_name].append(summary)
             all_rows.append({
-                "method": name,
+                "method": method_name,
                 "seed": seed,
-                "success_rate": res["success_rate"],
-                "mean_steps": res["mean_steps"],
-                "mean_latency_ms": res["mean_latency_ms"],
+                "success_rate": summary["success_rate"],
+                "mean_length": summary["mean_length"],
+                "latency_ms": summary["latency_ms"],
             })
-            print(f"  Seed {seed}: Success Rate = {res['success_rate']:.1f}%, Steps = {res['mean_steps']:.1f}, Latency = {res['mean_latency_ms']:.2f} ms/step")
+            pbar.write(f"[{method_name}] Seed {seed}: Success = {summary['success_rate']:.1f}%, Steps = {summary['mean_length']:.1f}, Latency = {summary['latency_ms']:.2f} ms")
 
-    # Aggregate metrics
-    summary = MetricsCollector.aggregate_runs(results_by_method, baseline_name="Baseline (Single-Intention)")
-    MetricsCollector.export_summary_to_json(summary, os.path.join(output_dir, "summary_metrics.json"))
+    # Aggregate statistics
+    aggregated = aggregate_runs(results_by_method, baseline_name="Single-Intention Baseline")
 
-    # Save summary dataframe
-    df_all = pd.DataFrame(all_rows)
-    df_all.to_csv(os.path.join(output_dir, "summary_runs.csv"), index=False)
+    metrics_path = os.path.join(cfg.eval.output_dir, "summary_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump(aggregated, f, indent=2)
 
-    # Save LaTeX table
-    latex_table = MetricsCollector.generate_latex_table(summary)
-    with open(os.path.join(output_dir, "summary_table.tex"), "w") as f:
-        f.write(latex_table)
+    df_runs = pd.DataFrame(all_rows)
+    df_runs.to_csv(os.path.join(cfg.eval.output_dir, "summary_runs.csv"), index=False)
 
-    print("\n=== Benchmark Completed Successfully! ===")
-    print(f"Summary metrics saved to {os.path.join(output_dir, 'summary_metrics.json')}")
-    print(f"LaTeX table saved to {os.path.join(output_dir, 'summary_table.tex')}")
-    return summary
+    latex_str = export_latex_table(aggregated)
+    with open(os.path.join(cfg.eval.output_dir, "summary_table.tex"), "w") as f:
+        f.write(latex_str)
 
+    print("\n=== Parallel Benchmark Completed Successfully! ===")
+    print(f"Summary metrics saved to {metrics_path}")
+    print(f"Summary table saved to {os.path.join(cfg.eval.output_dir, 'summary_table.tex')}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env_name", type=str, default="ogbench-antmaze-medium-navigate-v0")
-    parser.add_argument("--seeds", type=str, default="0,1,2,3,4")
-    parser.add_argument("--episodes", type=int, default=15)
-    parser.add_argument("--output_dir", type=str, default="results")
-    args = parser.parse_args()
-
-    seed_list = [int(s) for s in args.seeds.split(",")]
-    run_benchmarks(
-        env_name=args.env_name,
-        seeds=seed_list,
-        num_episodes=args.episodes,
-        output_dir=args.output_dir,
-    )
+    main()
