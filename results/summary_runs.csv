@@ -1,11 +1,3 @@
-method,seed,success_rate,mean_length,latency_ms
-Single-Intention Baseline,1,76.0,553.36,1.6672059902204217
-Single-Intention Baseline,0,84.00000000000001,562.76,1.6385097872547145
-Single-Intention Baseline,3,76.0,574.3199999999999,1.6054002328701393
-Single-Intention Baseline,2,64.0,627.0,1.5941732768808525
-Single-Intention Baseline,4,87.99999999999999,473.84,2.0283439870843356
-Buffer Graph Dijkstra (Branch 2),0,84.00000000000001,527.0,5.368862705776872
-Buffer Graph Dijkstra (Branch 2),1,72.00000000000001,574.52,5.503388818920308
-Buffer Graph Dijkstra (Branch 2),2,80.0,565.4,5.542522001863229
-Buffer Graph Dijkstra (Branch 2),3,80.0,505.52,4.97283439970049
-Buffer Graph Dijkstra (Branch 2),4,84.00000000000001,550.92,3.5701541561579653
+method,seed,success_rate,mean_length,latency_ms,self_intersections
+Single-Intention Baseline,0,82.66666666666666,525.8933333333333,1.476551476343612,12.040000000000001
+Buffer Graph Dijkstra (Branch 2),0,93.33333333333333,472.0533333333333,1.3087976166861,14.4

@@ -139,6 +139,85 @@ def plot_landmarks_panel(ax, landmarks_df, sg_df=None, task_id=1):
     ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
 
 
+def plot_multi_episode_panel(ax, traj_df, sg_df=None, title="", is_baseline=False):
+    draw_maze(ax)
+    if traj_df.empty:
+        ax.set_title(f"{title}\n(No data)", fontsize=11, fontweight="bold")
+        return
+
+    task_id = int(traj_df["task_id"].iloc[0])
+    task_info = TASK_COORDS.get(task_id, {"init": (0.0, 0.0), "goal": (20.0, 20.0)})
+
+    episodes = traj_df["episode"].unique()
+    success_count = 0
+    total_steps = []
+
+    for ep in episodes:
+        ep_df = traj_df[traj_df["episode"] == ep].sort_values("step")
+        if ep_df.empty:
+            continue
+        xs = ep_df["x"].values
+        ys = ep_df["y"].values
+        reached = float(ep_df["reward"].max()) > 0.0
+        if reached:
+            success_count += 1
+        total_steps.append(len(ep_df))
+
+        color = "#1f77b4" if reached else "#d62728"
+        alpha = 0.55 if len(episodes) > 1 else 0.85
+        ax.plot(xs, ys, color=color, alpha=alpha, linewidth=1.5, zorder=3)
+
+    init_xy = task_info["init"]
+    goal_xy = task_info["goal"]
+    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start ($s_0$)")
+    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal ($g$)")
+
+    # Plot waypoints for Dijkstra if available
+    if sg_df is not None and not sg_df.empty and not is_baseline:
+        wps = extract_executed_waypoints(sg_df)
+        if len(wps) > 0:
+            wps_arr = np.array(wps)
+            ax.plot(wps_arr[:, 0], wps_arr[:, 1], color="#ff7f0e", linestyle="--", linewidth=2.0, alpha=0.8, zorder=4)
+            ax.scatter(wps_arr[:, 0], wps_arr[:, 1], c="#ff7f0e", s=90, marker="D", edgecolors="black", linewidths=1.2, zorder=5, label=f"Waypoints ({len(wps)})")
+
+    succ_rate = (success_count / max(1, len(episodes))) * 100.0
+    mean_len = np.mean(total_steps) if total_steps else 0.0
+    status_color = "#2ca02c" if succ_rate >= 70.0 else ("#ff7f0e" if succ_rate >= 40.0 else "#d62728")
+
+    ax.set_title(f"{title}\nSuccess: {succ_rate:.1f}% ({success_count}/{len(episodes)} eps) | Mean Steps: {mean_len:.0f}", fontsize=10, fontweight="bold", color=status_color)
+    ax.legend(loc="upper left", fontsize=7, framealpha=0.9)
+
+
+def plot_overview_grid(df_traj, df_sg=None, seed=0, save_path=None):
+    methods = df_traj["method"].unique()
+    tasks = sorted(df_traj["task_id"].unique())
+    n_methods = len(methods)
+    n_tasks = len(tasks)
+
+    fig, axes = plt.subplots(n_methods, n_tasks, figsize=(4.5 * n_tasks, 4.5 * n_methods), dpi=150)
+    if n_methods == 1 and n_tasks == 1:
+        axes = np.array([[axes]])
+    elif n_methods == 1:
+        axes = axes[None, :]
+    elif n_tasks == 1:
+        axes = axes[:, None]
+
+    for m_idx, method in enumerate(methods):
+        is_b = "Baseline" in method
+        for t_idx, task_id in enumerate(tasks):
+            ax = axes[m_idx, t_idx]
+            sub_traj = df_traj[(df_traj["method"] == method) & (df_traj["seed"] == seed) & (df_traj["task_id"] == task_id)]
+            sub_sg = df_sg[(df_sg["method"] == method) & (df_sg["seed"] == seed) & (df_sg["task_id"] == task_id)] if df_sg is not None else None
+            plot_multi_episode_panel(ax, sub_traj, sub_sg, title=f"{method} | Task {task_id}", is_baseline=is_b)
+
+    plt.suptitle(f"Overview of All Trajectories (Seed {seed})", fontsize=14, fontweight="bold", y=1.002)
+    plt.tight_layout()
+    out_file = save_path or f"results/plots/overview_all_trajectories_seed{seed}.png"
+    plt.savefig(out_file, bbox_inches="tight")
+    plt.close()
+    print(f"Saved complete multi-trajectory overview grid to {out_file}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize AntMaze Navigation Trajectories & Subgoals")
     parser.add_argument("--traj_file", type=str, default="results/trajectories.csv", help="Path to trajectories CSV")
@@ -149,6 +228,8 @@ def main():
     parser.add_argument("--task", type=int, default=1, help="Filter by task ID (1..5)")
     parser.add_argument("--episode", type=int, default=0, help="Filter by episode index (0..14)")
     parser.add_argument("--compare", action="store_true", help="Plot 3-panel comparison across Baseline, Dijkstra, and Landmarks")
+    parser.add_argument("--all_episodes", action="store_true", help="Overlay all episodes for the specified task/seed")
+    parser.add_argument("--overview", action="store_true", help="Generate an overview grid of ALL tasks and methods for the given seed")
     parser.add_argument("--save_path", type=str, default=None, help="Custom output image path")
 
     args = parser.parse_args()
@@ -163,7 +244,24 @@ def main():
 
     os.makedirs("results/plots", exist_ok=True)
 
-    if args.compare:
+    if args.overview:
+        plot_overview_grid(df_traj, df_sg, seed=args.seed, save_path=args.save_path)
+    elif args.all_episodes:
+        target_method = args.method or df_traj["method"].iloc[0]
+        is_b = "Baseline" in target_method
+        sub_traj = df_traj[(df_traj["method"] == target_method) & (df_traj["seed"] == args.seed) & (df_traj["task_id"] == args.task)]
+        sub_sg = df_sg[(df_sg["method"] == target_method) & (df_sg["seed"] == args.seed) & (df_sg["task_id"] == args.task)] if df_sg is not None else None
+
+        fig, ax = plt.subplots(figsize=(7, 7), dpi=150)
+        plot_multi_episode_panel(ax, sub_traj, sub_sg, title=f"{target_method} | Task {args.task} (All Episodes, Seed {args.seed})", is_baseline=is_b)
+
+        clean_name = target_method.replace(" ", "_").replace("(", "").replace(")", "")
+        save_file = args.save_path or f"results/plots/{clean_name}_seed{args.seed}_task{args.task}_all_episodes.png"
+        plt.tight_layout()
+        plt.savefig(save_file, bbox_inches="tight")
+        plt.close()
+        print(f"Saved all-episodes trajectory overlay to {save_file}")
+    elif args.compare:
         fig, axes = plt.subplots(1, 3, figsize=(18, 6), dpi=150)
 
         # 1. Baseline Panel
@@ -186,7 +284,6 @@ def main():
         plt.savefig(save_file, bbox_inches="tight")
         plt.close()
         print(f"Saved 3-panel comparison plot to {save_file}")
-
     else:
         target_method = args.method or df_traj["method"].iloc[0]
         is_b = "Baseline" in target_method

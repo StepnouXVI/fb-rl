@@ -37,10 +37,6 @@ def _evaluate_worker(args):
         planner = BufferGraphPlanner(
             agent,
             dataset_states=train_ds["observations"],
-            n_landmarks=400,
-            max_edge_radius=4.5,
-            reachability_cutoff=20.0,
-            wp_switch_dist=3.2,
             name=method_name,
         )
     elif planner_type == "distilled_mlp":
@@ -69,9 +65,9 @@ def main(cfg: DictConfig):
     # Save sampled landmark coordinates for visualization
     _, _, sample_ds, _, _ = load_pretrained_agent(str(cfg.eval.checkpoint_dir), str(cfg.env.split), seed=0)
     rng = np.random.default_rng(42)
-    lm_idxs = rng.choice(len(sample_ds["observations"]), size=400, replace=False)
+    lm_idxs = rng.choice(len(sample_ds["observations"]), size=1000, replace=False)
     df_landmarks = pd.DataFrame({
-        "landmark_id": range(400),
+        "landmark_id": range(1000),
         "x": sample_ds["observations"][lm_idxs, 0],
         "y": sample_ds["observations"][lm_idxs, 1],
     })
