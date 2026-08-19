@@ -38,52 +38,6 @@ def _jit_batch_reach(agent, states, targets):
 
 
 @jax.jit
-def _jit_graph_step(agent, obs, goal_z, curr_wp):
-    """
-    Fused graph planner step:
-    Computes reachability to goal & curr_wp, plus candidate actions in a single batch-2 pass.
-    """
-    obs_2 = jnp.stack([obs, obs], axis=0)
-    targets = jnp.stack([goal_z, curr_wp], axis=0)
-
-    # 1. Forward reachability for [goal, curr_wp]
-    f = agent.network.select("forward_repr")(obs_2, targets, goal_encoded=True)
-    if f.ndim == 3:
-        f = jnp.mean(f, axis=0)
-    reaches = jnp.sum(f * targets, axis=-1)  # shape (2,) -> [reach_goal, reach_wp]
-
-    # 2. High actor local steering
-    high_dist = agent.network.select("high_actor")(obs_2, targets, goal_encoded=True, temperature=0.0)
-    subgoals = agent.normalize_z(high_dist.mode())  # shape (2, latent_dim)
-
-    # 3. Low actor action execution
-    low_dist = agent.network.select("actor")(obs_2, subgoals, goal_encoded=True, temperature=0.0)
-    actions = jnp.clip(low_dist.mode(), -1.0, 1.0)  # shape (2, act_dim)
-
-    return reaches, actions, subgoals
-
-
-@jax.jit
-def _jit_plan_query(agent, obs, goal_z, landmark_states, landmark_latents):
-    """Vectorized start and goal node query in 1 jitted pass."""
-    obs_exp = jnp.broadcast_to(obs[None, :], (landmark_states.shape[0], obs.shape[0]))
-    f_start = agent.network.select("forward_repr")(obs_exp, landmark_latents, goal_encoded=True)
-    if f_start.ndim == 3:
-        f_start = jnp.mean(f_start, axis=0)
-    r_start = jnp.sum(f_start * landmark_latents, axis=-1)
-    start_idx = jnp.argmax(r_start)
-
-    z_exp = jnp.broadcast_to(goal_z[None, :], (landmark_states.shape[0], goal_z.shape[0]))
-    f_goal = agent.network.select("forward_repr")(landmark_states, z_exp, goal_encoded=True)
-    if f_goal.ndim == 3:
-        f_goal = jnp.mean(f_goal, axis=0)
-    r_goal = jnp.sum(f_goal * z_exp, axis=-1)
-    goal_idx = jnp.argmax(r_goal)
-
-    return start_idx, goal_idx
-
-
-@jax.jit
 def _jit_actor_from_latent(agent, obs, latent):
     """Jitted low-actor execution given a latent intention."""
     obs_b = obs[None, :] if obs.ndim == 1 else obs
@@ -94,6 +48,14 @@ def _jit_actor_from_latent(agent, obs, latent):
     return jnp.clip(low_dist.mode()[0], -1.0, 1.0), subgoal_z[0]
 
 
+@jax.jit
+def _jit_decode_latent_to_coords(latent, landmark_latents):
+    """Finds the nearest landmark index in latent space."""
+    z = latent / jnp.linalg.norm(latent, axis=-1, keepdims=True)
+    sims = jnp.matmul(landmark_latents, z.T)
+    return jnp.argmax(sims)
+
+
 # ==========================================
 # Optimized Planner Classes
 # ==========================================
@@ -102,9 +64,10 @@ class BasePlanner:
     def __init__(self, agent, name="BasePlanner"):
         self.agent = agent
         self.name = name
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
 
     def reset(self, obs, goal_latent):
-        pass
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
         action, _ = _jit_baseline_step(
@@ -112,70 +75,140 @@ class BasePlanner:
         )
         return np.asarray(action)
 
+    def get_subgoal_info(self):
+        return self.last_subgoal_info
+
 
 class BaselinePlanner(BasePlanner):
-    def __init__(self, agent, use_high_actor=True, name="Single-Intention Baseline"):
+    def __init__(self, agent, dataset_states=None, use_high_actor=True, name="Single-Intention Baseline"):
         super().__init__(agent, name=name)
         self.use_high_actor = use_high_actor
+
+        if dataset_states is not None:
+            n_samples = min(500, len(dataset_states))
+            rng = np.random.default_rng(42)
+            idxs = rng.choice(len(dataset_states), size=n_samples, replace=False)
+            self.ref_coords = np.asarray(dataset_states[idxs][:, :2])
+            self.ref_latents = jnp.asarray(
+                agent.normalize_z(agent.network.select("backward_repr")(jnp.asarray(dataset_states[idxs])))
+            )
+        else:
+            self.ref_coords = None
+            self.ref_latents = None
+
+    def reset(self, obs, goal_latent):
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
         obs_jnp = jnp.asarray(obs)
         goal_jnp = jnp.asarray(goal_latent)
         if self.use_high_actor:
-            action, _ = _jit_baseline_step(self.agent, obs_jnp, goal_jnp, seed=seed, temperature=temperature)
+            action, high_z = _jit_baseline_step(self.agent, obs_jnp, goal_jnp, seed=seed, temperature=temperature)
+
+            if self.ref_latents is not None:
+                best_idx = int(_jit_decode_latent_to_coords(high_z, self.ref_latents))
+                decoded_xy = self.ref_coords[best_idx].tolist()
+            else:
+                decoded_xy = None
+
+            self.last_subgoal_info = {
+                "subgoal_xy": decoded_xy,
+                "waypoints_xy": [decoded_xy] if decoded_xy else [],
+                "is_direct_goal": False,
+            }
         else:
             norm_z = self.agent.normalize_z(goal_jnp)
             low_dist = self.agent.network.select("actor")(
                 obs_jnp[None, :], norm_z[None, :], goal_encoded=True, temperature=temperature
             )
             action = jnp.clip(low_dist.mode()[0], -1.0, 1.0)
+            self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
+
         return np.asarray(action)
 
 
 class BufferGraphPlanner(BasePlanner):
     """
-    Topological Graph Shortest-Path Planner with Precomputed APSP and Fused Step JIT.
-    Pure Forward-Backward Reachability + Dijkstra + High-Actor Local Steering.
-    # ponytail: Precomputed All-Pairs Shortest Paths (APSP) + JIT Fused Execution.
+    Obstacle-Free Topological Graph Planner with Raycast String-Pulling Shortcut Simplification,
+    Dynamic Line-of-Sight Skipping, and Direct Low-Actor Goal Locking.
     """
     def __init__(
         self,
         agent,
         dataset_states,
-        n_landmarks=300,
+        maze_map=None,
+        n_landmarks=400,
+        max_edge_radius=5.5,
         reachability_cutoff=20.0,
-        hit_threshold=35.0,
+        wp_switch_dist=3.5,
         name="Buffer Graph Dijkstra",
     ):
         super().__init__(agent, name=name)
         self.n_landmarks = min(n_landmarks, len(dataset_states))
+        self.max_edge_radius = max_edge_radius
         self.reachability_cutoff = reachability_cutoff
-        self.hit_threshold = hit_threshold
+        self.wp_switch_dist = wp_switch_dist
 
-        # 1. Sample landmarks uniformly
+        # 1. Parse maze walls for obstacle-free line-of-sight validation
+        if maze_map is None:
+            maze_map = np.array([
+                [1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 0, 0, 1, 1, 0, 0, 1],
+                [1, 0, 0, 1, 0, 0, 0, 1],
+                [1, 1, 0, 0, 0, 1, 1, 1],
+                [1, 0, 0, 1, 0, 0, 0, 1],
+                [1, 0, 1, 0, 0, 1, 0, 1],
+                [1, 0, 0, 0, 1, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1],
+            ])
+        self.wall_boxes = []
+        for i in range(maze_map.shape[0]):
+            for j in range(maze_map.shape[1]):
+                if maze_map[i, j] == 1:
+                    cx = (j - 1) * 4.0
+                    cy = (i - 1) * 4.0
+                    self.wall_boxes.append((cx - 2.0, cx + 2.0, cy - 2.0, cy + 2.0))
+
+        # 2. Sample landmarks uniformly across dataset
         rng = np.random.default_rng(42)
         idxs = rng.choice(len(dataset_states), size=self.n_landmarks, replace=False)
         self.landmarks = jnp.asarray(dataset_states[idxs])
+        self.landmark_coords = np.asarray(dataset_states[idxs][:, :2])
         self.landmark_latents = jnp.asarray(
             agent.normalize_z(agent.network.select("backward_repr")(self.landmarks))
         )
 
-        # 2. Build graph & Precompute All-Pairs Shortest Paths (APSP)
+        # 3. Build connectivity graph with obstacle avoidance & Precompute APSP
         self.cost_matrix, self.max_diag = self._build_graph()
         self.all_dist, self.all_pred = dijkstra(
             self.cost_matrix, directed=True, return_predecessors=True
         )
 
         self.waypoints = []
+        self.waypoint_coords = []
         self.current_idx = 0
         self.steps_on_wp = 0
+        self.pos_history = []
+
+    def has_los(self, p1, p2, margin=0.45):
+        p1 = np.asarray(p1)
+        p2 = np.asarray(p2)
+        dist = np.linalg.norm(p2 - p1)
+        n_samples = max(10, int(dist * 5))
+        ts = np.linspace(0.0, 1.0, n_samples)
+        xs = p1[0] + ts * (p2[0] - p1[0])
+        ys = p1[1] + ts * (p2[1] - p1[1])
+        for x, y in zip(xs, ys):
+            for xmin, xmax, ymin, ymax in self.wall_boxes:
+                if (xmin - margin) <= x <= (xmax + margin) and (ymin - margin) <= y <= (ymax + margin):
+                    return False
+        return True
 
     def _build_graph(self):
         n = len(self.landmarks)
         s_rep = jnp.repeat(self.landmarks, n, axis=0)
         z_tile = jnp.tile(self.landmark_latents, (n, 1))
 
-        # Vectorized jitted evaluation of all pairs
         reach_flat = []
         for i in range(0, len(s_rep), 45000):
             sb = s_rep[i:i+45000]
@@ -183,20 +216,31 @@ class BufferGraphPlanner(BasePlanner):
             reach_flat.append(np.asarray(_jit_batch_reach(self.agent, sb, zb)))
         reach_matrix = np.concatenate(reach_flat, axis=0).reshape((n, n))
 
+        dists_euclid = np.linalg.norm(self.landmark_coords[:, None, :] - self.landmark_coords[None, :, :], axis=-1)
         max_diag = float(np.max(np.diag(reach_matrix))) if np.max(np.diag(reach_matrix)) > 0 else 1.0
         normalized = np.clip(reach_matrix / max_diag, 1e-6, 1.0)
         cost_matrix = np.maximum(0.0, -np.log(normalized))
+
+        cost_matrix[dists_euclid > self.max_edge_radius] = np.inf
         cost_matrix[reach_matrix < self.reachability_cutoff] = np.inf
+
+        for i in range(n):
+            for j in range(n):
+                if cost_matrix[i, j] < np.inf and i != j:
+                    if not self.has_los(self.landmark_coords[i], self.landmark_coords[j], margin=0.45):
+                        cost_matrix[i, j] = np.inf
+
         np.fill_diagonal(cost_matrix, 0.0)
         return cost_matrix, max_diag
 
     def _plan(self, obs, goal_z):
-        start_idx, goal_idx = _jit_plan_query(
-            self.agent, jnp.asarray(obs), jnp.asarray(goal_z), self.landmarks, self.landmark_latents
-        )
-        start_idx, goal_idx = int(start_idx), int(goal_idx)
+        obs_xy = np.asarray(obs[:2])
+        start_idx = int(np.argmin(np.linalg.norm(self.landmark_coords - obs_xy, axis=-1)))
 
-        # O(1) Precomputed Dijkstra lookup
+        goal_z_norm = goal_z / np.linalg.norm(goal_z)
+        sims = np.asarray(jnp.matmul(self.landmark_latents, goal_z_norm.T))
+        goal_idx = int(np.argmax(sims))
+
         path = []
         curr = goal_idx
         while curr != -9999 and curr != start_idx:
@@ -208,47 +252,125 @@ class BufferGraphPlanner(BasePlanner):
         if curr == start_idx:
             path.append(start_idx)
             path.reverse()
-            if len(path) > 1:
-                path = path[1:]
-            return [self.landmark_latents[i] for i in path] + [goal_z]
+        else:
+            path = [start_idx, goal_idx]
 
-        return [self.landmark_latents[goal_idx], goal_z]
+        # Explicit paired list: [(coord, latent), ...]
+        pairs = []
+        for i in path:
+            pairs.append((self.landmark_coords[i], self.landmark_latents[i]))
+        pairs.append((self.landmark_coords[goal_idx], goal_z))
+
+        # Raycast String-Pulling Shortcut Algorithm
+        smooth_pairs = [pairs[0]]
+        curr_i = 0
+        n = len(pairs)
+        while curr_i < n - 1:
+            furthest = curr_i + 1
+            for k in range(n - 1, curr_i, -1):
+                if self.has_los(pairs[curr_i][0], pairs[k][0], margin=0.45):
+                    furthest = k
+                    break
+            curr_i = furthest
+            smooth_pairs.append(pairs[curr_i])
+
+        # If ant already has line-of-sight to a later waypoint in smooth_pairs, start directly from it
+        start_wp_idx = 0
+        for k in range(len(smooth_pairs) - 1, -1, -1):
+            if self.has_los(obs_xy, smooth_pairs[k][0], margin=0.45):
+                start_wp_idx = k
+                break
+
+        exec_pairs = smooth_pairs[start_wp_idx:]
+        if len(exec_pairs) == 0 or exec_pairs[-1][1] is not goal_z:
+            exec_pairs.append((pairs[-1][0], goal_z))
+
+        self.waypoint_coords = [p[0].tolist() if isinstance(p[0], np.ndarray) else p[0] for p in exec_pairs]
+        self.waypoints = [p[1] for p in exec_pairs]
+        self.pos_history = []
+        return self.waypoints
 
     def reset(self, obs, goal_z):
-        self.waypoints = self._plan(obs, goal_z)
+        self._plan(obs, goal_z)
         self.current_idx = 0
         self.steps_on_wp = 0
+        self.pos_history = []
+        self.last_subgoal_info = {
+            "subgoal_xy": self.waypoint_coords[0] if self.waypoint_coords else None,
+            "waypoints_xy": self.waypoint_coords,
+            "is_direct_goal": False,
+        }
 
     def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
-        obs_jnp = jnp.asarray(obs)
-        goal_jnp = jnp.asarray(goal_z)
-
-        if not self.waypoints:
+        if not self.waypoints or len(self.waypoint_coords) == 0:
             self.reset(obs, goal_z)
 
+        # 1. Dynamic Line-of-Sight Shortcut: skip ahead if later waypoint is directly visible
+        for k in range(len(self.waypoint_coords) - 1, self.current_idx, -1):
+            if self.has_los(obs[:2], self.waypoint_coords[k], margin=0.45):
+                if k > self.current_idx:
+                    self.current_idx = k
+                    self.steps_on_wp = 0
+                break
+
+        # 2. Progression-based waypoint advancement
+        curr_coord = np.asarray(self.waypoint_coords[self.current_idx]) if self.current_idx < len(self.waypoint_coords) else None
+        next_coord = np.asarray(self.waypoint_coords[self.current_idx + 1]) if self.current_idx < len(self.waypoint_coords) - 1 else None
+
+        dist_curr = 999.0
+        if curr_coord is not None:
+            dist_curr = float(np.linalg.norm(obs[:2] - curr_coord))
+            if next_coord is not None:
+                dist_next = float(np.linalg.norm(obs[:2] - next_coord))
+                edge_vec = next_coord - curr_coord
+                proj = float(np.dot(obs[:2] - curr_coord, edge_vec))
+                if dist_curr <= self.wp_switch_dist or dist_next < dist_curr or (proj > 0 and dist_curr < 5.0):
+                    self.current_idx += 1
+                    self.steps_on_wp = 0
+            else:
+                if dist_curr <= self.wp_switch_dist and self.current_idx < len(self.waypoints) - 1:
+                    self.current_idx += 1
+                    self.steps_on_wp = 0
+
         curr_wp = self.waypoints[self.current_idx]
+        self.pos_history.append(obs[:2].copy())
+        if len(self.pos_history) > 40:
+            self.pos_history.pop(0)
 
-        # Single fused JIT step execution
-        reaches, actions, _ = _jit_graph_step(self.agent, obs_jnp, goal_jnp, curr_wp)
+        # Subtle unsticking jitter if stuck against wall for > 40 steps with displacement < 0.5m
+        is_stuck = False
+        if len(self.pos_history) >= 40:
+            disp = float(np.linalg.norm(obs[:2] - self.pos_history[0]))
+            if disp < 0.5:
+                is_stuck = True
 
-        reach_goal = float(reaches[0])
-        reach_wp = float(reaches[1])
+        eval_temp = 0.2 if is_stuck else 0.0
+        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else None
 
-        # 1. Short-circuit: Direct visibility to global goal
-        if reach_goal >= self.hit_threshold * 0.7:
-            return np.asarray(actions[0])
+        # When close to the final goal (dist <= 3.0m), use low actor directly on normalized goal latent
+        # to prevent high-actor backward looping in terminal rooms
+        if self.current_idx >= len(self.waypoints) - 1 and dist_curr <= 3.0:
+            norm_z = self.agent.normalize_z(jnp.asarray(goal_z)[None, :])
+            low_dist = self.agent.network.select("actor")(
+                jnp.asarray(obs)[None, :], norm_z, goal_encoded=True, temperature=eval_temp
+            )
+            if eval_temp == 0.0 or seed_k is None:
+                action = low_dist.mode()
+            else:
+                action = low_dist.sample(seed=seed_k)
+            action = jnp.clip(action[0], -1.0, 1.0)
+        else:
+            action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), curr_wp, seed=seed_k, temperature=eval_temp)
 
         self.steps_on_wp += 1
 
-        # 2. Hitting time waypoint switching
-        if reach_wp >= self.hit_threshold and self.current_idx < len(self.waypoints) - 1:
-            self.current_idx += 1
-            self.steps_on_wp = 0
-        # 3. Fallback: Replanning if stuck
-        elif self.steps_on_wp > 80 and self.current_idx < len(self.waypoints) - 1:
-            self.reset(obs, goal_z)
-
-        return np.asarray(actions[1])
+        c = self.waypoint_coords[self.current_idx] if self.current_idx < len(self.waypoint_coords) else None
+        self.last_subgoal_info = {
+            "subgoal_xy": c,
+            "waypoints_xy": self.waypoint_coords,
+            "is_direct_goal": bool(self.current_idx >= len(self.waypoints) - 1),
+        }
+        return np.asarray(action)
 
 
 class RecursiveBisectionPlanner(BasePlanner):
@@ -261,10 +383,12 @@ class RecursiveBisectionPlanner(BasePlanner):
         rng = np.random.default_rng(42)
         idxs = rng.choice(len(dataset_states), size=self.n_candidates, replace=False)
         self.candidate_states = jnp.asarray(dataset_states[idxs])
+        self.candidate_coords = np.asarray(dataset_states[idxs][:, :2])
         self.candidate_latents = jnp.asarray(
             agent.normalize_z(agent.network.select("backward_repr")(self.candidate_states))
         )
         self.cached_latent = None
+        self.cached_coord = None
         self.steps_on_latent = 0
 
     def _find_midpoint_fast(self, obs, goal_latent):
@@ -276,11 +400,17 @@ class RecursiveBisectionPlanner(BasePlanner):
 
         scores = jnp.log(jnp.maximum(1e-4, r_sw)) + jnp.log(jnp.maximum(1e-4, r_wg))
         best_idx = int(jnp.argmax(scores))
+        self.cached_coord = self.candidate_coords[best_idx].tolist()
         return self.candidate_latents[best_idx]
 
     def reset(self, obs, goal_latent):
         self.cached_latent = self._find_midpoint_fast(jnp.asarray(obs), jnp.asarray(goal_latent))
         self.steps_on_latent = 0
+        self.last_subgoal_info = {
+            "subgoal_xy": self.cached_coord,
+            "waypoints_xy": [self.cached_coord] if self.cached_coord else [],
+            "is_direct_goal": False,
+        }
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
         obs_jnp = jnp.asarray(obs)
@@ -295,6 +425,11 @@ class RecursiveBisectionPlanner(BasePlanner):
             self.reset(obs, goal_latent)
 
         action, _ = _jit_actor_from_latent(self.agent, obs_jnp, self.cached_latent)
+        self.last_subgoal_info = {
+            "subgoal_xy": self.cached_coord,
+            "waypoints_xy": [self.cached_coord] if self.cached_coord else [],
+            "is_direct_goal": False,
+        }
         return np.asarray(action)
 
 
@@ -329,6 +464,9 @@ class DistilledMLPPlanner(BasePlanner):
         self.model.to(self.device)
         self.model.eval()
 
+    def reset(self, obs, goal_latent):
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
+
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
         x = np.concatenate([obs, np.asarray(goal_latent)], axis=-1).astype(np.float32)
         with torch.no_grad():
@@ -336,4 +474,5 @@ class DistilledMLPPlanner(BasePlanner):
             pred_z = self.model(inp).squeeze(0).numpy()
 
         action, _ = _jit_actor_from_latent(self.agent, jnp.asarray(obs), jnp.asarray(pred_z))
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)

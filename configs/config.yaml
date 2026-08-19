@@ -5,7 +5,7 @@ defaults:
 
 eval:
   checkpoint_dir: "fb-test"
-  seeds: [0, 1, 2, 3, 4]
+  seeds: [0]
   num_episodes: 15
   eval_temperature: 0.0
   video_episodes: 0

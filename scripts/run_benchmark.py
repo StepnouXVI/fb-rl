@@ -30,11 +30,20 @@ def _evaluate_worker(args):
     evaluator = ZeroShotEvaluator(env, agent, train_ds, fb_cfg, env_name=env_name)
 
     if planner_type == "baseline":
-        planner = BaselinePlanner(agent, use_high_actor=True, name=method_name)
+        planner = BaselinePlanner(agent, dataset_states=train_ds["observations"], use_high_actor=True, name=method_name)
     elif planner_type == "recursive_bisection":
         planner = RecursiveBisectionPlanner(agent, train_ds["observations"], max_depth=2, n_candidates=200, hit_threshold=35.0, name=method_name)
     elif planner_type == "buffer_graph":
-        planner = BufferGraphPlanner(agent, train_ds["observations"], n_landmarks=300, reachability_cutoff=20.0, hit_threshold=35.0, name=method_name)
+        planner = BufferGraphPlanner(
+            agent,
+            train_ds["observations"],
+            maze_map=env.unwrapped.maze_map,
+            n_landmarks=400,
+            max_edge_radius=5.5,
+            reachability_cutoff=20.0,
+            wp_switch_dist=3.5,
+            name=method_name,
+        )
     elif planner_type == "distilled_mlp":
         distilled_ckpt = os.path.join("results", f"distilled_mlp_{split}.pt")
         planner = DistilledMLPPlanner(
@@ -46,9 +55,8 @@ def _evaluate_worker(args):
     else:
         raise ValueError(f"Unknown planner type: {planner_type}")
 
-    np.random.seed(seed)
     summary = evaluator.evaluate_all_tasks(
-        planner, num_episodes=num_episodes, eval_temperature=eval_temperature
+        planner, num_episodes=num_episodes, eval_temperature=eval_temperature, seed=seed
     )
     return method_name, seed, summary
 
@@ -58,6 +66,17 @@ def main(cfg: DictConfig):
     print(f"=== Ultra-Fast Multi-Subgoal FB Planning Parallel Benchmark on {cfg.env.name} ===")
     print(f"Seeds: {list(cfg.eval.seeds)} | Episodes per task: {cfg.eval.num_episodes} | Workers: {cfg.eval.n_workers}")
     os.makedirs(cfg.eval.output_dir, exist_ok=True)
+
+    # Save sampled landmark coordinates for visualization
+    _, _, sample_ds, _, _ = load_pretrained_agent(str(cfg.eval.checkpoint_dir), str(cfg.env.split), seed=0)
+    rng = np.random.default_rng(42)
+    lm_idxs = rng.choice(len(sample_ds["observations"]), size=400, replace=False)
+    df_landmarks = pd.DataFrame({
+        "landmark_id": range(400),
+        "x": sample_ds["observations"][lm_idxs, 0],
+        "y": sample_ds["observations"][lm_idxs, 1],
+    })
+    df_landmarks.to_csv(os.path.join(cfg.eval.output_dir, "landmarks.csv"), index=False)
 
     planner_map = {
         "Single-Intention Baseline": "baseline",
@@ -95,6 +114,8 @@ def main(cfg: DictConfig):
     print(f"Total parallel jobs to execute: {len(jobs)}")
     results_by_method = defaultdict(list)
     all_rows = []
+    all_trajectories = []
+    all_subgoals = []
 
     ctx = mp.get_context("spawn")
     n_workers = min(int(cfg.eval.n_workers), len(jobs))
@@ -111,6 +132,11 @@ def main(cfg: DictConfig):
                 "mean_length": summary["mean_length"],
                 "latency_ms": summary["latency_ms"],
             })
+            if "trajectory_records" in summary:
+                all_trajectories.extend(summary["trajectory_records"])
+            if "subgoal_records" in summary:
+                all_subgoals.extend(summary["subgoal_records"])
+
             pbar.write(f"[{method_name}] Seed {seed}: Success = {summary['success_rate']:.1f}%, Steps = {summary['mean_length']:.1f}, Latency = {summary['latency_ms']:.2f} ms")
 
     # Aggregate statistics
@@ -122,6 +148,16 @@ def main(cfg: DictConfig):
 
     df_runs = pd.DataFrame(all_rows)
     df_runs.to_csv(os.path.join(cfg.eval.output_dir, "summary_runs.csv"), index=False)
+
+    if all_trajectories:
+        df_traj = pd.DataFrame(all_trajectories)
+        df_traj.to_csv(os.path.join(cfg.eval.output_dir, "trajectories.csv"), index=False)
+        print(f"Saved {len(df_traj)} trajectory steps to {os.path.join(cfg.eval.output_dir, 'trajectories.csv')}")
+
+    if all_subgoals:
+        df_sg = pd.DataFrame(all_subgoals)
+        df_sg.to_csv(os.path.join(cfg.eval.output_dir, "subgoals.csv"), index=False)
+        print(f"Saved {len(df_sg)} subgoal records to {os.path.join(cfg.eval.output_dir, 'subgoals.csv')}")
 
     latex_str = export_latex_table(aggregated)
     with open(os.path.join(cfg.eval.output_dir, "summary_table.tex"), "w") as f:
