@@ -193,11 +193,15 @@ class BufferGraphPlanner(BasePlanner):
             curr = pred[curr]
             if len(path) > n:
                 break
+
         if curr == start_idx:
             path.append(start_idx)
             path.reverse()
+            if len(path) > 1:
+                path = path[1:] 
             return [self.landmark_latents[i] for i in path] + [goal_z]
-        return [self.landmark_latents[start_idx], self.landmark_latents[goal_idx], goal_z]
+        
+        return [self.landmark_latents[goal_idx], goal_z]
 
     def reset(self, obs, goal_z):
         self.waypoints = self._plan(obs, goal_z)
@@ -205,32 +209,43 @@ class BufferGraphPlanner(BasePlanner):
         self.steps_on_wp = 0
 
     def get_subgoal_latent(self, obs, goal_z, step=0):
-        if not self.waypoints:
-            self.reset(obs, goal_z)
-            return self.waypoints[0]
+            obs_jnp = jnp.asarray(obs)[None, :]
+            z_goal_jnp = jnp.asarray(goal_z)[None, :]
 
-        curr_wp = self.waypoints[self.current_idx]
-        obs_jnp = jnp.asarray(obs)[None, :]
-        z_jnp = jnp.asarray(curr_wp)[None, :]
-        reach = float(np.asarray(self._batch_reach(obs_jnp, z_jnp))[0])
+            # 1. Short-circuit: Прямая видимость до глобальной цели
+            reach_goal = float(np.asarray(self._batch_reach(obs_jnp, z_goal_jnp))[0])
+            if reach_goal >= self.hit_threshold * 0.7: 
+                # Напрямую подруливаем к финишу
+                high_dist = self.agent.network.select("high_actor")(obs_jnp, z_goal_jnp, goal_encoded=True, temperature=0.0)
+                return np.asarray(self.agent.normalize_z(high_dist.mode()))[0]
 
-        self.steps_on_wp += 1
-        # Hitting time switch: when reaching current waypoint's neighborhood
-        if reach >= self.hit_threshold and self.current_idx < len(self.waypoints) - 1:
-            self.current_idx += 1
-            self.steps_on_wp = 0
+            if not self.waypoints:
+                self.reset(obs, goal_z)
+                return self.waypoints[0]
+
             curr_wp = self.waypoints[self.current_idx]
             z_jnp = jnp.asarray(curr_wp)[None, :]
-        elif self.steps_on_wp > 80 and self.current_idx < len(self.waypoints) - 1:
-            # Replan if stuck on waypoint
-            self.reset(obs, goal_z)
-            curr_wp = self.waypoints[self.current_idx]
-            z_jnp = jnp.asarray(curr_wp)[None, :]
+            reach = float(np.asarray(self._batch_reach(obs_jnp, z_jnp))[0])
 
-        # Local high-actor steering towards current waypoint
-        high_dist = self.agent.network.select("high_actor")(obs_jnp, z_jnp, goal_encoded=True, temperature=0.0)
-        steered_z = high_dist.mode()
-        return np.asarray(self.agent.normalize_z(steered_z))[0]
+            self.steps_on_wp += 1
+            
+            # 2. Hitting time: переключение на следующий узел графа
+            if reach >= self.hit_threshold and self.current_idx < len(self.waypoints) - 1:
+                self.current_idx += 1
+                self.steps_on_wp = 0
+                curr_wp = self.waypoints[self.current_idx]
+                z_jnp = jnp.asarray(curr_wp)[None, :] # Обновляем вектор для подруливания
+                
+            # 3. Fallback: если муравей застрял, перестраиваем весь маршрут
+            elif self.steps_on_wp > 80 and self.current_idx < len(self.waypoints) - 1:
+                self.reset(obs, goal_z)
+                curr_wp = self.waypoints[self.current_idx]
+                z_jnp = jnp.asarray(curr_wp)[None, :]
+
+            # 4. ЛОКАЛЬНОЕ ПОДРУЛИВАНИЕ (Исправление ошибки):
+            # Пропускаем статичный узел графа через high_actor для проекции на знакомое многообразие
+            high_dist = self.agent.network.select("high_actor")(obs_jnp, z_jnp, goal_encoded=True, temperature=0.0)
+            return np.asarray(self.agent.normalize_z(high_dist.mode()))[0]
 
 
 class DistilledMLPPlanner(BasePlanner):

@@ -1,5 +1,5 @@
 name: "Buffer Graph Dijkstra (Branch 2)"
 type: "buffer_graph"
-n_landmarks: 300
+n_landmarks: 500
 reachability_cutoff: 20.0
 hit_threshold: 50.0
