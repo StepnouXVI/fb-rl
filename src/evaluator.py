@@ -2,12 +2,12 @@ import time
 from collections import defaultdict
 import numpy as np
 import jax
-from tqdm import tqdm, trange
+from tqdm import tqdm
 from utils.env_utils import relabel_dataset
 from utils.datasets import Dataset, HGCDataset
 from utils.evaluation import supply_rng, flatten
 
-# ponytail: Unified evaluation wrapper using baseline repo's exact zero-shot task setup
+# ponytail: High-performance evaluation engine with task latent caching and JIT policy execution
 class ZeroShotEvaluator:
     def __init__(self, env, agent, dataset_dict, config, env_name="ogbench-antmaze-medium-navigate-v0"):
         self.env = env
@@ -15,40 +15,48 @@ class ZeroShotEvaluator:
         self.dataset_dict = dataset_dict
         self.config = config
         self.env_name = env_name
+        self.inferred_latents_cache = {}
 
-    def evaluate_task(self, planner, task_id, num_episodes=15, eval_temperature=0.0):
-        # 1. Reset env to task and infer zero-shot goal latent
+    def get_inferred_latent(self, task_id):
+        if task_id in self.inferred_latents_cache:
+            return self.inferred_latents_cache[task_id]
+
         self.env.reset(options=dict(task_id=task_id))
         zero_shot_ds = relabel_dataset(self.env_name, self.env, self.dataset_dict)
         zero_shot_ds = HGCDataset(Dataset.create(**zero_shot_ds), self.config)
-        n_samples = min(10000, zero_shot_ds.size)
-        zero_shot_batch = zero_shot_ds.sample(n_samples, idxs=np.arange(n_samples), relabeling=False, augmentation=False)
+        n_samples = min(50000, zero_shot_ds.size)
+        zero_shot_batch = zero_shot_ds.sample(n_samples, idxs=None, relabeling=False, augmentation=False)
         inferred_latent = np.asarray(self.agent.infer_latent(zero_shot_batch))
+        self.inferred_latents_cache[task_id] = inferred_latent
+        return inferred_latent
+
+    def evaluate_task(self, planner, task_id, num_episodes=15, eval_temperature=0.0):
+        inferred_latent = self.get_inferred_latent(task_id)
 
         stats = defaultdict(list)
         trajectories = []
         latencies = []
 
-        actor_fn = supply_rng(planner.sample_action, rng=jax.random.PRNGKey(np.random.randint(0, 2**32)))
-
-        for _ in range(num_episodes):
+        for ep in range(num_episodes):
             obs, info = self.env.reset(options=dict(task_id=task_id))
             planner.reset(obs, inferred_latent)
-            
+
             done = False
             step = 0
             traj = [obs[:2].copy()]
-            
+            seed_key = jax.random.PRNGKey(ep)
+
+            # Warmup / single step timing
+            t0 = time.perf_counter()
             while not done:
-                t0 = time.perf_counter()
-                action = actor_fn(obs, inferred_latent, step=step, temperature=eval_temperature)
-                latencies.append((time.perf_counter() - t0) * 1000.0)
-                
+                action = planner.sample_action(obs, inferred_latent, step=step, seed=seed_key, temperature=eval_temperature)
                 next_obs, reward, terminated, truncated, info = self.env.step(action)
                 step += 1
                 done = terminated or truncated
                 traj.append(next_obs[:2].copy())
                 obs = next_obs
+
+            latencies.append((time.perf_counter() - t0) * 1000.0 / max(step, 1))
 
             for k, v in flatten(info).items():
                 stats[k].append(v)
@@ -61,7 +69,7 @@ class ZeroShotEvaluator:
     def evaluate_all_tasks(self, planner, num_episodes=15, eval_temperature=0.0):
         task_infos = self.env.unwrapped.task_infos if hasattr(self.env.unwrapped, "task_infos") else self.env.task_infos
         num_tasks = len(task_infos)
-        
+
         all_metrics = defaultdict(list)
         all_trajs = []
 

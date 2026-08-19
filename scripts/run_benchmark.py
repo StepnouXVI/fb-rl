@@ -1,5 +1,12 @@
 import os, sys, json, hydra
+# Set single-thread flags before loading numerical libraries to avoid thread thrashing
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import multiprocessing as mp
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
@@ -25,15 +32,15 @@ def _evaluate_worker(args):
     if planner_type == "baseline":
         planner = BaselinePlanner(agent, use_high_actor=True, name=method_name)
     elif planner_type == "recursive_bisection":
-        planner = RecursiveBisectionPlanner(agent, train_ds["observations"], max_depth=2, n_candidates=200, hit_threshold=50.0, name=method_name)
+        planner = RecursiveBisectionPlanner(agent, train_ds["observations"], max_depth=2, n_candidates=200, hit_threshold=35.0, name=method_name)
     elif planner_type == "buffer_graph":
-        planner = BufferGraphPlanner(agent, train_ds["observations"], n_landmarks=300, reachability_cutoff=20.0, hit_threshold=50.0, name=method_name)
+        planner = BufferGraphPlanner(agent, train_ds["observations"], n_landmarks=300, reachability_cutoff=20.0, hit_threshold=35.0, name=method_name)
     elif planner_type == "distilled_mlp":
         distilled_ckpt = os.path.join("results", f"distilled_mlp_{split}.pt")
         planner = DistilledMLPPlanner(
             agent,
             checkpoint_path=distilled_ckpt if os.path.exists(distilled_ckpt) else None,
-            device=device,
+            device="cpu",
             name=method_name,
         )
     else:
@@ -48,7 +55,7 @@ def _evaluate_worker(args):
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig):
-    print(f"=== Multi-Subgoal FB Planning Parallel Benchmark on {cfg.env.name} ===")
+    print(f"=== Ultra-Fast Multi-Subgoal FB Planning Parallel Benchmark on {cfg.env.name} ===")
     print(f"Seeds: {list(cfg.eval.seeds)} | Episodes per task: {cfg.eval.num_episodes} | Workers: {cfg.eval.n_workers}")
     os.makedirs(cfg.eval.output_dir, exist_ok=True)
 
@@ -89,8 +96,9 @@ def main(cfg: DictConfig):
     results_by_method = defaultdict(list)
     all_rows = []
 
+    ctx = mp.get_context("spawn")
     n_workers = min(int(cfg.eval.n_workers), len(jobs))
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
         futures = {executor.submit(_evaluate_worker, job): job for job in jobs}
         pbar = tqdm(as_completed(futures), total=len(jobs), desc="Parallel Benchmark Progress")
         for fut in pbar:
