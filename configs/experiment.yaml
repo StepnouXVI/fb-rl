@@ -6,6 +6,16 @@ checkpoint_dir: "fb-test"
 output_dir: "results/experiments"
 seeds:
   - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
 eval_temperature: 0.0
 target_radius: 1.0
 terminate_on_goal: true

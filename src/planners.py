@@ -316,8 +316,7 @@ class BufferGraphPlanner(BasePlanner):
 
     def get_subgoal_latent(self, obs, goal_z, step=0):
         """Returns the optimal target subgoal latent for the current state and goal."""
-        if not self.path_coords:
-            self.reset(obs, goal_z)
+        self.reset(obs, goal_z)
 
         obs_xy = np.asarray(obs[:2])
         search_end = min(len(self.path_coords), self.current_path_idx + 12)
@@ -407,12 +406,13 @@ class DistilledMLPPlanner(BasePlanner):
         n_layers=3,
         num_heads=4,
         device="cpu",
-        name="Distilled Latent Policy",
+        name=None,
     ):
+        name = name or f"Distilled ({model_type})"
         super().__init__(agent, name=name)
         obs_dim = 29
         latent_dim = agent.config["latent_dim"]
-        self.device = torch.device("cpu")
+        self.device = torch.device(device)
         torch.set_num_threads(1)
 
         self.model = build_student_model(
@@ -427,16 +427,31 @@ class DistilledMLPPlanner(BasePlanner):
             self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
         self.model.to(self.device)
         self.model.eval()
+        self.pos_history = []
 
     def reset(self, obs, goal_latent):
+        self.pos_history = []
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
+        obs_xy = np.asarray(obs[:2])
+        self.pos_history.append(obs_xy.copy())
+        if len(self.pos_history) > 40:
+            self.pos_history.pop(0)
+
+        is_stuck = False
+        if len(self.pos_history) >= 40:
+            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
+                is_stuck = True
+
+        eval_temp = 0.2 if is_stuck else temperature
+        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
+
         x = np.concatenate([obs, np.asarray(goal_latent)], axis=-1).astype(np.float32)
         with torch.no_grad():
-            inp = torch.from_numpy(x).unsqueeze(0)
-            pred_z = self.model(inp).squeeze(0).numpy()
+            inp = torch.from_numpy(x).unsqueeze(0).to(self.device)
+            pred_z = self.model(inp).squeeze(0).cpu().numpy()
 
-        action, _ = _jit_actor_from_latent(self.agent, jnp.asarray(obs), jnp.asarray(pred_z))
+        action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), jnp.asarray(pred_z), seed=seed_k, temperature=eval_temp)
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)

@@ -17,32 +17,42 @@ def main(cfg: DictConfig):
     os.makedirs(cfg.eval.output_dir, exist_ok=True)
 
     agent, env, train_ds, _, _ = load_pretrained_agent(cfg.eval.checkpoint_dir, cfg.env.split)
-    teacher = BufferGraphPlanner(
-        agent,
-        train_ds["observations"],
-        n_landmarks=1000,
-        max_edge_radius=3.5,
-        reachability_cutoff=35.0,
-        lookahead_dist=2.6,
-    )
-
-    # Collect teacher subgoal targets across random offline pairs
     n_pairs = cfg.distillation.n_pairs
-    print(f"Generating {n_pairs} teacher demonstration pairs...")
-    rng = np.random.default_rng(42)
-    s_idxs = rng.choice(len(train_ds["observations"]), size=n_pairs)
-    g_idxs = rng.choice(len(train_ds["observations"]), size=n_pairs)
+    cache_path = os.path.join(cfg.eval.output_dir, f"distill_dataset_{cfg.env.split}_{n_pairs}pairs.npz")
 
-    states = train_ds["observations"][s_idxs]
-    goal_latents = np.asarray(
-        agent.normalize_z(agent.network.select("backward_repr")(train_ds["observations"][g_idxs]))
-    )
+    if os.path.exists(cache_path):
+        print(f"Loading cached dataset from {cache_path}")
+        data = np.load(cache_path)
+        states = data["states"]
+        goal_latents = data["goal_latents"]
+        target_latents = data["target_latents"]
+    else:
+        teacher = BufferGraphPlanner(
+            agent,
+            train_ds["observations"],
+            n_landmarks=1000,
+            max_edge_radius=3.5,
+            reachability_cutoff=35.0,
+            lookahead_dist=2.6,
+        )
 
-    target_latents = []
-    for i in tqdm(range(n_pairs), desc="Generating targets"):
-        subgoal_z = teacher.get_subgoal_latent(states[i], goal_latents[i], step=0)
-        target_latents.append(subgoal_z)
-    target_latents = np.asarray(target_latents, dtype=np.float32)
+        print(f"Generating {n_pairs} teacher demonstration pairs...")
+        rng = np.random.default_rng(42)
+        s_idxs = rng.choice(len(train_ds["observations"]), size=n_pairs)
+        g_idxs = rng.choice(len(train_ds["observations"]), size=n_pairs)
+
+        states = train_ds["observations"][s_idxs]
+        goal_latents = np.asarray(
+            agent.normalize_z(agent.network.select("backward_repr")(train_ds["observations"][g_idxs]))
+        )
+
+        target_latents = []
+        for i in tqdm(range(n_pairs), desc="Generating targets"):
+            subgoal_z = teacher.get_subgoal_latent(states[i], goal_latents[i], step=0)
+            target_latents.append(subgoal_z)
+        target_latents = np.asarray(target_latents, dtype=np.float32)
+        np.savez_compressed(cache_path, states=states, goal_latents=goal_latents, target_latents=target_latents)
+        print(f"Saved dataset to {cache_path}")
 
     # Detect device (MPS / CUDA / CPU)
     device_str = cfg.distillation.device
