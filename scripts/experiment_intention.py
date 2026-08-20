@@ -251,6 +251,7 @@ def run_scenario(
     records.append({
         "scenario_name": name,
         "mode": mode,
+        "seed": int(seed),
         "step": 0,
         "x": float(cur_pos[0]),
         "y": float(cur_pos[1]),
@@ -344,6 +345,7 @@ def run_scenario(
         records.append({
             "scenario_name": name,
             "mode": mode,
+            "seed": int(seed),
             "step": step,
             "x": float(cur_pos[0]),
             "y": float(cur_pos[1]),
@@ -364,6 +366,7 @@ def run_scenario(
     summary = {
         "scenario_name": name,
         "mode": mode,
+        "seed": int(seed),
         "split": str(config.get("split", "medium")),
         "start_x": float(start_xy[0]),
         "start_y": float(start_xy[1]),
@@ -515,9 +518,10 @@ def plot_scenario_results(summary, df_telemetry, waypoints, output_path, maze_ty
 
     status_str = "SUCCESS (Goal Reached)" if summary["reached_goal"] else "INCOMPLETE"
     status_color = "#1b5e20" if summary["reached_goal"] else "#b71c1c"
+    seed_txt = f" | Seed: {summary['seed']}" if "seed" in summary else ""
 
     ax_maze.set_title(
-        f"Scenario: {summary['scenario_name']} [Mode: {summary['mode']}]\nStatus: {status_str} | Steps: {summary['num_steps']} | Final Dist: {summary['final_dist_to_goal']:.2f}m",
+        f"Scenario: {summary['scenario_name']}{seed_txt} [Mode: {summary['mode']}]\nStatus: {status_str} | Steps: {summary['num_steps']} | Final Dist: {summary['final_dist_to_goal']:.2f}m",
         fontsize=11,
         fontweight="bold",
         color=status_color,
@@ -600,17 +604,28 @@ def main(cfg: DictConfig):
 
     checkpoint_dir = str(cfg.get("checkpoint_dir", "fb-test"))
     split = str(cfg.env.get("split", "medium"))
-    seed = int(cfg.get("seed", 0))
     eval_temperature = float(cfg.get("eval_temperature", 0.0))
     target_radius = float(cfg.get("target_radius", 1.0))
     terminate_on_goal = bool(cfg.get("terminate_on_goal", True))
     output_dir = str(cfg.get("output_dir", "results/experiments"))
     target_scenario = cfg.get("scenario_name", None)
 
+    # Parse seeds
+    if "seeds" in cfg and cfg.seeds is not None:
+        try:
+            seeds = [int(s) for s in cfg.seeds]
+        except (TypeError, ValueError):
+            seeds = [int(cfg.seeds)]
+    elif "seed" in cfg and cfg.seed is not None:
+        seeds = [int(cfg.seed)]
+    else:
+        seeds = [0]
+
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Loading pretrained agent from {checkpoint_dir}/{split} (seed {seed})...")
-    agent, env, train_ds, val_ds, fb_cfg = load_pretrained_agent(checkpoint_dir, split, seed=seed)
+    print(f"Seeds: {seeds}")
+    print(f"Loading pretrained agent from {checkpoint_dir}/{split} (initial seed {seeds[0]})...")
+    agent, env, train_ds, val_ds, fb_cfg = load_pretrained_agent(checkpoint_dir, split, seed=seeds[0])
     print("Agent and environment loaded successfully.")
 
     # Filter scenarios if specified
@@ -624,55 +639,61 @@ def main(cfg: DictConfig):
     else:
         selected_scenarios = all_scenarios
 
-    print(f"Total scenarios to execute: {len(selected_scenarios)}")
+    total_runs = len(selected_scenarios) * len(seeds)
+    print(f"Total scenarios: {len(selected_scenarios)} | Total runs: {total_runs}")
     print("-" * 70)
 
     summaries = []
     cached_planner = None
 
-    for idx, sc in enumerate(selected_scenarios, 1):
-        print(f"[{idx}/{len(selected_scenarios)}] Running scenario '{sc.name}' (mode: {sc.mode})...")
-        t0 = time.perf_counter()
+    run_idx = 0
+    for sc in selected_scenarios:
+        for seed in seeds:
+            run_idx += 1
+            seed_suffix = f"_seed{seed}" if len(seeds) > 1 else ""
+            seed_info = f" (seed: {seed})" if len(seeds) > 1 else ""
+            print(f"[{run_idx}/{total_runs}] Running scenario '{sc.name}'{seed_info} (mode: {sc.mode})...")
+            t0 = time.perf_counter()
 
-        summary, df_telemetry, waypoints, planner_obj = run_scenario(
-            agent=agent,
-            env=env,
-            train_ds=train_ds,
-            config=fb_cfg,
-            scenario_cfg=sc,
-            eval_temperature=eval_temperature,
-            target_radius=target_radius,
-            terminate_on_goal=terminate_on_goal,
-            seed=seed,
-            cached_planner=cached_planner,
-        )
-        if planner_obj is not None:
-            cached_planner = planner_obj
+            summary, df_telemetry, waypoints, planner_obj = run_scenario(
+                agent=agent,
+                env=env,
+                train_ds=train_ds,
+                config=fb_cfg,
+                scenario_cfg=sc,
+                eval_temperature=eval_temperature,
+                target_radius=target_radius,
+                terminate_on_goal=terminate_on_goal,
+                seed=seed,
+                cached_planner=cached_planner,
+            )
+            if planner_obj is not None:
+                cached_planner = planner_obj
 
-        elapsed = time.perf_counter() - t0
+            elapsed = time.perf_counter() - t0
 
-        # Save individual telemetry CSV
-        telemetry_file = os.path.join(output_dir, f"telemetry_{sc.name}.csv")
-        df_telemetry.to_csv(telemetry_file, index=False)
+            # Save individual telemetry CSV
+            telemetry_file = os.path.join(output_dir, f"telemetry_{sc.name}{seed_suffix}.csv")
+            df_telemetry.to_csv(telemetry_file, index=False)
 
-        # Generate plot
-        plot_file = os.path.join(output_dir, f"{sc.name}.png")
-        plot_scenario_results(
-            summary=summary,
-            df_telemetry=df_telemetry,
-            waypoints=waypoints,
-            output_path=plot_file,
-            maze_type=split,
-            target_radius=target_radius,
-        )
-        summary["plot_path"] = plot_file
-        summary["telemetry_path"] = telemetry_file
-        summaries.append(summary)
+            # Generate plot
+            plot_file = os.path.join(output_dir, f"{sc.name}{seed_suffix}.png")
+            plot_scenario_results(
+                summary=summary,
+                df_telemetry=df_telemetry,
+                waypoints=waypoints,
+                output_path=plot_file,
+                maze_type=split,
+                target_radius=target_radius,
+            )
+            summary["plot_path"] = plot_file
+            summary["telemetry_path"] = telemetry_file
+            summaries.append(summary)
 
-        status = "SUCCESS" if summary["reached_goal"] else "INCOMPLETE"
-        print(
-            f"   -> {status} in {summary['num_steps']} steps ({elapsed:.2f}s). Final dist: {summary['final_dist_to_goal']:.2f}m. Plot: {plot_file}"
-        )
+            status = "SUCCESS" if summary["reached_goal"] else "INCOMPLETE"
+            print(
+                f"   -> {status} in {summary['num_steps']} steps ({elapsed:.2f}s). Final dist: {summary['final_dist_to_goal']:.2f}m. Plot: {plot_file}"
+            )
 
     # Save summary CSV
     df_summary = pd.DataFrame(summaries)
@@ -682,7 +703,9 @@ def main(cfg: DictConfig):
     print("=" * 70)
     print(f"All experiments completed! Summary saved to {summary_csv_path}")
     print("=" * 70)
-    print(df_summary[["scenario_name", "mode", "num_steps", "reached_goal", "min_dist_to_goal", "final_dist_to_goal"]].to_string(index=False))
+    cols = ["scenario_name", "mode", "seed", "num_steps", "reached_goal", "min_dist_to_goal", "final_dist_to_goal"]
+    existing_cols = [c for c in cols if c in df_summary.columns]
+    print(df_summary[existing_cols].to_string(index=False))
     print("=" * 70)
 
 

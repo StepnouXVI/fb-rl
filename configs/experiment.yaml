@@ -4,7 +4,8 @@ defaults:
 
 checkpoint_dir: "fb-test"
 output_dir: "results/experiments"
-seed: 0
+seeds:
+  - 0
 eval_temperature: 0.0
 target_radius: 1.0
 terminate_on_goal: true
@@ -20,6 +21,12 @@ scenarios:
   - name: "straight_corridor"
     start_xy: [0.0, 0.0]
     target_xy: [0.0, 3.0]
+    mode: "direct_latent"
+    max_steps: 200
+
+  - name: "straight_corridor_2"
+    start_xy: [0.0, 0.0]
+    target_xy: [7.0, 7.0]
     mode: "direct_latent"
     max_steps: 200
 

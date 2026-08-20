@@ -271,3 +271,40 @@ def test_plot_generation(loaded_agent_and_env):
         )
         assert os.path.exists(plot_path)
         assert os.path.getsize(plot_path) > 10000
+
+
+def test_multi_seed_scenario_execution(loaded_agent_and_env):
+    """Verifies that running scenarios across multiple seeds works and produces separate summaries."""
+    agent, env, train_ds, _, config = loaded_agent_and_env
+
+    sc = {
+        "name": "test_multi_seed",
+        "start_xy": [0.0, 0.0],
+        "target_xy": [0.0, 3.0],
+        "mode": "direct_latent",
+        "max_steps": 5,
+    }
+
+    seeds = [0, 42, 100]
+    summaries = []
+    for s in seeds:
+        summary, df_telemetry, _, _ = run_scenario(
+            agent=agent,
+            env=env,
+            train_ds=train_ds,
+            config=config,
+            scenario_cfg=sc,
+            eval_temperature=0.0,
+            target_radius=1.0,
+            terminate_on_goal=True,
+            seed=s,
+        )
+        assert summary["seed"] == s
+        assert "seed" in df_telemetry.columns
+        assert (df_telemetry["seed"] == s).all()
+        summaries.append(summary)
+
+    assert len(summaries) == 3
+    df_all = pd.DataFrame(summaries)
+    assert list(df_all["seed"]) == [0, 42, 100]
+
