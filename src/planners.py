@@ -222,37 +222,9 @@ class BufferGraphPlanner(BasePlanner):
         self.current_path_idx = 0
         self.pos_history = []
 
-        # Extract downsampled key waypoints for logging/plotting
-        if len(self.path_coords) > 2:
-            filtered_indices = [0]
-            accum = 0.0
-            for k in range(1, len(self.path_coords) - 1):
-                p_prev = self.path_coords[k - 1]
-                p_curr = self.path_coords[k]
-                p_next = self.path_coords[k + 1]
-                v1 = p_curr - p_prev
-                v2 = p_next - p_curr
-                l1 = np.linalg.norm(v1)
-                l2 = np.linalg.norm(v2)
-                accum += l1
-                is_corner = False
-                if l1 > 0.1 and l2 > 0.1:
-                    cos_theta = np.dot(v1, v2) / (l1 * l2)
-                    if cos_theta < 0.7:  # Turn angle > 45 deg
-                        is_corner = True
-
-                if accum >= self.lookahead_dist or is_corner:
-                    filtered_indices.append(k)
-                    accum = 0.0
-
-            if filtered_indices[-1] != len(self.path_coords) - 1:
-                filtered_indices.append(len(self.path_coords) - 1)
-
-            self.waypoint_coords = [self.path_coords[k] for k in filtered_indices]
-            self.waypoints = [self.path_latents[k] for k in filtered_indices]
-        else:
-            self.waypoint_coords = list(self.path_coords)
-            self.waypoints = list(self.path_latents)
+        # Keep all Dijkstra landmarks as waypoints so the trajectory strictly follows corridors
+        self.waypoint_coords = list(self.path_coords)
+        self.waypoints = list(self.path_latents)
 
         curr_c = self.waypoint_coords[0] if self.waypoint_coords else None
         self.last_subgoal_info = {
