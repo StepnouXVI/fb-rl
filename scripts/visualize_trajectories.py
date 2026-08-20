@@ -113,11 +113,10 @@ def normalize_maze_type(maze_type):
 
 
 def auto_detect_maze_type(df_traj):
-    """Infers maze type from trajectory coordinate bounds and teleport jump occurrences."""
+    """Infers maze type from trajectory coordinate bounds, metadata columns, and teleport jumps."""
     if df_traj is None or df_traj.empty:
         return "medium"
 
-    # Check if split/env is recorded in DataFrame columns
     for col in ["split", "env", "env_name", "maze_type"]:
         if col in df_traj.columns and not df_traj[col].isna().all():
             val = str(df_traj[col].iloc[0])
@@ -249,7 +248,7 @@ def draw_maze(
             ax.text(
                 px,
                 py,
-                f"$IN_{idx+1}$",
+                f"{idx+1}$",
                 ha="center",
                 va="center",
                 fontsize=7.5,
@@ -286,7 +285,7 @@ def draw_maze(
             ax.text(
                 px,
                 py,
-                f"$OUT_{idx+1}$",
+                f"{idx+1}$",
                 ha="center",
                 va="center",
                 fontsize=7.5,
@@ -394,9 +393,9 @@ def plot_trajectory_panel(
         show_portal_links=show_portal_links,
     )
 
-    if traj_df.empty:
+    if traj_df is None or traj_df.empty:
         ax.set_title(f"{title}\n(No data)", fontsize=11, fontweight="bold")
-        return
+        return False
 
     task_id = int(traj_df["task_id"].iloc[0])
     task_info = get_task_info(task_id, maze_type=maze_type, traj_df=traj_df)
@@ -406,14 +405,14 @@ def plot_trajectory_panel(
     steps = traj_df["step"].values
 
     # Plot ant path with color gradient and teleport breaks
-    ax.scatter(xs, ys, c=steps, cmap="plasma", s=14, alpha=0.85, zorder=3, label="Ant Path ($t=0..T$)")
+    ax.scatter(xs, ys, c=steps, cmap="plasma", s=14, alpha=0.85, zorder=3, label="Ant Path (t=0..T)")
     plot_path_with_teleports(ax, xs, ys, jump_threshold=5.0, color="#333333", alpha=0.35, linewidth=1.2, zorder=2)
 
     # Plot Start and Goal
     init_xy = task_info["init"]
     goal_xy = task_info["goal"]
-    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start ($s_0$)")
-    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal ($g$)")
+    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start (s0)")
+    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal (g)")
 
     # Plot Subgoals
     if sg_df is not None and not sg_df.empty:
@@ -466,6 +465,7 @@ def plot_trajectory_panel(
     ax.set_title(f"{title}\nStatus: {status_text} ({len(traj_df)} steps)", fontsize=11, fontweight="bold", color=status_color)
     ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
     _add_portal_legend_handles(ax, maze_type, show_portals=show_portals, show_portal_links=show_portal_links, fontsize=8)
+    return reached
 
 
 def plot_landmarks_panel(
@@ -491,7 +491,7 @@ def plot_landmarks_panel(
             edgecolors="#333333",
             linewidths=0.5,
             zorder=3,
-            label=f"Buffer Landmarks ($N={len(landmarks_df)}$)",
+            label=f"Buffer Landmarks (N={len(landmarks_df)})",
         )
 
     wps = extract_executed_waypoints(sg_df)
@@ -512,8 +512,8 @@ def plot_landmarks_panel(
 
     init_xy = task_info["init"]
     goal_xy = task_info["goal"]
-    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start ($s_0$)")
-    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal ($g$)")
+    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start (s0)")
+    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal (g)")
 
     ax.set_title(
         f"Buffer Landmarks & Graph Topology\nTask {task_id} Navigation Graph ({maze_type.capitalize()})",
@@ -536,7 +536,7 @@ def plot_multi_episode_panel(
         show_portals=show_portals,
         show_portal_links=show_portal_links,
     )
-    if traj_df.empty:
+    if traj_df is None or traj_df.empty:
         ax.set_title(f"{title}\n(No data)", fontsize=11, fontweight="bold")
         return
 
@@ -564,8 +564,8 @@ def plot_multi_episode_panel(
 
     init_xy = task_info["init"]
     goal_xy = task_info["goal"]
-    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start ($s_0$)")
-    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal ($g$)")
+    ax.scatter([init_xy[0]], [init_xy[1]], c="#2ca02c", s=130, marker="o", edgecolors="black", linewidths=1.5, zorder=6, label="Start (s0)")
+    ax.scatter([goal_xy[0]], [goal_xy[1]], c="#d62728", s=180, marker="*", edgecolors="black", linewidths=1.5, zorder=6, label="Goal (g)")
 
     if sg_df is not None and not sg_df.empty and not is_baseline:
         wps = extract_executed_waypoints(sg_df)
@@ -653,10 +653,191 @@ def plot_overview_grid(
 
     plt.suptitle(f"Overview of All Trajectories on {norm_type.capitalize()} Maze (Seed {seed})", fontsize=14, fontweight="bold", y=1.002)
     plt.tight_layout()
-    out_file = save_path or f"results/plots/overview_{norm_type}_seed{seed}.png"
+    out_file = save_path or f"results/plots/{norm_type}/overview_{norm_type}_seed{seed}.png"
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
     plt.savefig(out_file, bbox_inches="tight")
     plt.close()
     print(f"Saved complete multi-trajectory overview grid to {out_file}")
+
+
+def render_3panel_comparison(
+    df_traj,
+    df_sg=None,
+    df_lm=None,
+    seed=0,
+    task_id=1,
+    episode=0,
+    maze_type="medium",
+    unit_size=4.0,
+    show_portals=True,
+    show_portal_links=True,
+    target_method="Buffer Graph Dijkstra (Branch 2)",
+    baseline_method="Single-Intention Baseline",
+    output_dir="results/plots",
+    save_path=None,
+    organize_by_outcome=True,
+):
+    """
+    Renders a 3-panel comparison (Baseline, Planner, Landmarks) and organizes
+    the resulting image into success/ or failed/ subfolders based on trial outcome.
+    """
+    norm_type = normalize_maze_type(maze_type)
+    grid = MAZE_LAYOUTS.get(norm_type, MAZE_LAYOUTS["medium"])
+    h, w = grid.shape
+    aspect = w / max(1, h)
+    fig_w = max(6.5, 6.5 * aspect)
+    fig_h = 6.5
+
+    fig, axes = plt.subplots(1, 3, figsize=(fig_w * 2.6, fig_h), dpi=150)
+
+    # 1. Baseline Panel
+    b_name = baseline_method
+    sub_traj_b = df_traj[
+        (df_traj["method"] == b_name)
+        & (df_traj["seed"] == seed)
+        & (df_traj["task_id"] == task_id)
+        & (df_traj["episode"] == episode)
+    ]
+    sub_sg_b = (
+        df_sg[
+            (df_sg["method"] == b_name)
+            & (df_sg["seed"] == seed)
+            & (df_sg["task_id"] == task_id)
+            & (df_sg["episode"] == episode)
+        ]
+        if df_sg is not None
+        else None
+    )
+    plot_trajectory_panel(
+        axes[0],
+        sub_traj_b,
+        sub_sg_b,
+        title=f"{b_name} (Seed {seed})",
+        is_baseline=True,
+        maze_type=norm_type,
+        unit_size=unit_size,
+        show_portals=show_portals,
+        show_portal_links=show_portal_links,
+    )
+
+    # 2. Target Planner Panel
+    d_name = target_method
+    sub_traj_d = df_traj[
+        (df_traj["method"] == d_name)
+        & (df_traj["seed"] == seed)
+        & (df_traj["task_id"] == task_id)
+        & (df_traj["episode"] == episode)
+    ]
+    sub_sg_d = (
+        df_sg[
+            (df_sg["method"] == d_name)
+            & (df_sg["seed"] == seed)
+            & (df_sg["task_id"] == task_id)
+            & (df_sg["episode"] == episode)
+        ]
+        if df_sg is not None
+        else None
+    )
+    d_success = plot_trajectory_panel(
+        axes[1],
+        sub_traj_d,
+        sub_sg_d,
+        title=f"{d_name} (Seed {seed})",
+        is_baseline=False,
+        maze_type=norm_type,
+        unit_size=unit_size,
+        show_portals=show_portals,
+        show_portal_links=show_portal_links,
+    )
+
+    # 3. Landmarks Panel
+    plot_landmarks_panel(
+        axes[2],
+        df_lm,
+        sub_sg_d,
+        task_id=task_id,
+        maze_type=norm_type,
+        unit_size=unit_size,
+        show_portals=show_portals,
+        show_portal_links=show_portal_links,
+    )
+
+    # Determine outcome based on evaluated planner (or baseline fallback)
+    if not sub_traj_d.empty:
+        outcome = "success" if d_success else "failed"
+    elif not sub_traj_b.empty:
+        outcome = "success" if float(sub_traj_b["reward"].max()) > 0.0 else "failed"
+    else:
+        outcome = "failed"
+
+    if save_path:
+        out_file = save_path
+    elif organize_by_outcome:
+        out_dir = os.path.join(output_dir, norm_type, outcome)
+        os.makedirs(out_dir, exist_ok=True)
+        out_file = os.path.join(out_dir, f"compare_3panel_{norm_type}_seed{seed}_task{task_id}_ep{episode}.png")
+    else:
+        out_dir = os.path.join(output_dir, norm_type)
+        os.makedirs(out_dir, exist_ok=True)
+        out_file = os.path.join(out_dir, f"compare_3panel_{norm_type}_seed{seed}_task{task_id}_ep{episode}.png")
+
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(out_file, bbox_inches="tight")
+    plt.close()
+    return out_file, outcome
+
+
+def export_all_comparisons(
+    df_traj,
+    df_sg=None,
+    df_lm=None,
+    maze_type="medium",
+    unit_size=4.0,
+    show_portals=True,
+    show_portal_links=True,
+    output_dir="results/plots",
+    seed_filter=None,
+    task_filter=None,
+):
+    """
+    Iterates over all episodes in the trajectories dataset, renders 3-panel comparisons,
+    and automatically classifies each into success/ or failed/ subfolders under the maze category.
+    """
+    norm_type = normalize_maze_type(maze_type)
+    episodes_meta = df_traj[["seed", "task_id", "episode"]].drop_duplicates().sort_values(["seed", "task_id", "episode"])
+
+    if seed_filter is not None:
+        episodes_meta = episodes_meta[episodes_meta["seed"] == seed_filter]
+    if task_filter is not None:
+        episodes_meta = episodes_meta[episodes_meta["task_id"] == task_filter]
+
+    total = len(episodes_meta)
+    print(f"Exporting {total} 3-panel comparisons organized into '{output_dir}/{norm_type}/{{success,failed}}/'...")
+
+    counts = {"success": 0, "failed": 0}
+    for _, row in episodes_meta.iterrows():
+        s = int(row["seed"])
+        t = int(row["task_id"])
+        ep = int(row["episode"])
+        out_file, outcome = render_3panel_comparison(
+            df_traj,
+            df_sg=df_sg,
+            df_lm=df_lm,
+            seed=s,
+            task_id=t,
+            episode=ep,
+            maze_type=norm_type,
+            unit_size=unit_size,
+            show_portals=show_portals,
+            show_portal_links=show_portal_links,
+            output_dir=output_dir,
+            organize_by_outcome=True,
+        )
+        counts[outcome] += 1
+
+    print(f"Export completed: {counts['success']} SUCCESS, {counts['failed']} FAILED plots saved to {output_dir}/{norm_type}/")
+    return counts
 
 
 def main():
@@ -664,6 +845,7 @@ def main():
     parser.add_argument("--traj_file", type=str, default="results/trajectories.csv", help="Path to trajectories CSV")
     parser.add_argument("--sg_file", type=str, default="results/subgoals.csv", help="Path to subgoals CSV")
     parser.add_argument("--lm_file", type=str, default="results/landmarks.csv", help="Path to landmarks CSV")
+    parser.add_argument("--output_dir", type=str, default="results/plots", help="Base directory to save plots into")
     parser.add_argument("--maze_type", "--maze", "--split", dest="maze_type", type=str, default="auto", help="Maze type (auto, medium, large, giant, teleport)")
     parser.add_argument("--unit_size", type=float, default=4.0, help="Maze grid cell size (default: 4.0)")
     parser.add_argument("--custom_layout", type=str, default=None, help="Path to custom JSON or text layout file")
@@ -674,6 +856,7 @@ def main():
     parser.add_argument("--task", type=int, default=1, help="Filter by task ID (1..5)")
     parser.add_argument("--episode", type=int, default=0, help="Filter by episode index (0..14)")
     parser.add_argument("--compare", action="store_true", help="Plot 3-panel comparison across Baseline, Dijkstra, and Landmarks")
+    parser.add_argument("--export_comparisons", "--batch_compare", action="store_true", help="Export all 3-panel comparisons classified into success/ and failed/ folders")
     parser.add_argument("--all_episodes", action="store_true", help="Overlay all episodes for the specified task/seed")
     parser.add_argument("--overview", action="store_true", help="Generate an overview grid of ALL tasks and methods for the given seed")
     parser.add_argument("--save_path", type=str, default=None, help="Custom output image path")
@@ -709,8 +892,8 @@ def main():
 
     show_portals = not args.no_portals
     show_portal_links = not args.no_portal_links
-
-    os.makedirs("results/plots", exist_ok=True)
+    base_out_dir = os.path.join(args.output_dir, maze_type)
+    os.makedirs(base_out_dir, exist_ok=True)
 
     grid = MAZE_LAYOUTS.get(maze_type, MAZE_LAYOUTS["medium"])
     h, w = grid.shape
@@ -718,14 +901,28 @@ def main():
     fig_w = max(6.5, 6.5 * aspect)
     fig_h = 6.5
 
-    if args.overview:
+    if args.export_comparisons:
+        export_all_comparisons(
+            df_traj,
+            df_sg=df_sg,
+            df_lm=df_lm,
+            maze_type=maze_type,
+            unit_size=args.unit_size,
+            show_portals=show_portals,
+            show_portal_links=show_portal_links,
+            output_dir=args.output_dir,
+            seed_filter=args.seed if "--seed" in os.sys.argv else None,
+            task_filter=args.task if "--task" in os.sys.argv else None,
+        )
+    elif args.overview:
+        save_file = args.save_path or os.path.join(base_out_dir, f"overview_{maze_type}_seed{args.seed}.png")
         plot_overview_grid(
             df_traj,
             df_sg,
             seed=args.seed,
             maze_type=maze_type,
             unit_size=args.unit_size,
-            save_path=args.save_path,
+            save_path=save_file,
             show_portals=show_portals,
             show_portal_links=show_portal_links,
         )
@@ -753,71 +950,29 @@ def main():
         )
 
         clean_name = target_method.replace(" ", "_").replace("(", "").replace(")", "")
-        save_file = args.save_path or f"results/plots/{clean_name}_{maze_type}_seed{args.seed}_task{args.task}_all_episodes.png"
+        save_file = args.save_path or os.path.join(base_out_dir, f"{clean_name}_{maze_type}_seed{args.seed}_task{args.task}_all_episodes.png")
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
         plt.tight_layout()
         plt.savefig(save_file, bbox_inches="tight")
         plt.close()
         print(f"Saved all-episodes trajectory overlay to {save_file}")
     elif args.compare:
-        fig, axes = plt.subplots(1, 3, figsize=(fig_w * 2.6, fig_h), dpi=150)
-
-        # 1. Baseline Panel
-        b_name = "Single-Intention Baseline"
-        sub_traj_b = df_traj[(df_traj["method"] == b_name) & (df_traj["seed"] == args.seed) & (df_traj["task_id"] == args.task) & (df_traj["episode"] == args.episode)]
-        sub_sg_b = (
-            df_sg[(df_sg["method"] == b_name) & (df_sg["seed"] == args.seed) & (df_sg["task_id"] == args.task) & (df_sg["episode"] == args.episode)]
-            if df_sg is not None
-            else None
-        )
-        plot_trajectory_panel(
-            axes[0],
-            sub_traj_b,
-            sub_sg_b,
-            title=f"{b_name} (Seed {args.seed})",
-            is_baseline=True,
-            maze_type=maze_type,
-            unit_size=args.unit_size,
-            show_portals=show_portals,
-            show_portal_links=show_portal_links,
-        )
-
-        # 2. Dijkstra Panel
-        d_name = "Buffer Graph Dijkstra (Branch 2)"
-        sub_traj_d = df_traj[(df_traj["method"] == d_name) & (df_traj["seed"] == args.seed) & (df_traj["task_id"] == args.task) & (df_traj["episode"] == args.episode)]
-        sub_sg_d = (
-            df_sg[(df_sg["method"] == d_name) & (df_sg["seed"] == args.seed) & (df_sg["task_id"] == args.task) & (df_sg["episode"] == args.episode)]
-            if df_sg is not None
-            else None
-        )
-        plot_trajectory_panel(
-            axes[1],
-            sub_traj_d,
-            sub_sg_d,
-            title=f"{d_name} (Seed {args.seed})",
-            is_baseline=False,
-            maze_type=maze_type,
-            unit_size=args.unit_size,
-            show_portals=show_portals,
-            show_portal_links=show_portal_links,
-        )
-
-        # 3. Landmarks Panel
-        plot_landmarks_panel(
-            axes[2],
-            df_lm,
-            sub_sg_d,
+        out_file, outcome = render_3panel_comparison(
+            df_traj,
+            df_sg=df_sg,
+            df_lm=df_lm,
+            seed=args.seed,
             task_id=args.task,
+            episode=args.episode,
             maze_type=maze_type,
             unit_size=args.unit_size,
             show_portals=show_portals,
             show_portal_links=show_portal_links,
+            output_dir=args.output_dir,
+            save_path=args.save_path,
+            organize_by_outcome=True,
         )
-
-        save_file = args.save_path or f"results/plots/compare_3panel_{maze_type}_seed{args.seed}_task{args.task}_ep{args.episode}.png"
-        plt.tight_layout()
-        plt.savefig(save_file, bbox_inches="tight")
-        plt.close()
-        print(f"Saved 3-panel comparison plot to {save_file}")
+        print(f"Saved 3-panel comparison plot ({outcome.upper()}) to {out_file}")
     else:
         target_method = args.method or df_traj["method"].iloc[0]
         is_b = "Baseline" in target_method
@@ -829,7 +984,7 @@ def main():
         )
 
         fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=150)
-        plot_trajectory_panel(
+        reached = plot_trajectory_panel(
             ax,
             sub_traj,
             sub_sg,
@@ -840,15 +995,22 @@ def main():
             show_portals=show_portals,
             show_portal_links=show_portal_links,
         )
+        outcome = "success" if reached else "failed"
 
         clean_name = target_method.replace(" ", "_").replace("(", "").replace(")", "")
-        save_file = args.save_path or f"results/plots/{clean_name}_{maze_type}_seed{args.seed}_task{args.task}_ep{args.episode}.png"
+        if args.save_path:
+            save_file = args.save_path
+        else:
+            out_folder = os.path.join(base_out_dir, outcome)
+            os.makedirs(out_folder, exist_ok=True)
+            save_file = os.path.join(out_folder, f"{clean_name}_{maze_type}_seed{args.seed}_task{args.task}_ep{args.episode}.png")
+
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
         plt.tight_layout()
         plt.savefig(save_file, bbox_inches="tight")
         plt.close()
-        print(f"Saved trajectory plot to {save_file}")
+        print(f"Saved trajectory plot ({outcome.upper()}) to {save_file}")
 
 
 if __name__ == "__main__":
     main()
-

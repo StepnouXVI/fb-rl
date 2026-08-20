@@ -28,6 +28,7 @@ def _jit_baseline_step(agent, obs, goal_latent, seed=None, temperature=0.0):
     return jnp.clip(action[0], -1.0, 1.0), subgoal_z[0]
 
 
+
 @jax.jit
 def _jit_batch_reach(agent, states, targets):
     """Jitted batch reachability metric."""
