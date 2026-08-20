@@ -1,0 +1,70 @@
+defaults:
+  - env: antmaze_medium
+  - _self_
+
+checkpoint_dir: "fb-test"
+output_dir: "results/experiments"
+seed: 0
+eval_temperature: 0.0
+target_radius: 1.0
+terminate_on_goal: true
+scenario_name: null # null or "all" to run all scenarios, or specify a name like "straight_corridor"
+
+planner_defaults:
+  n_landmarks: 1000
+  lookahead_dist: 2.6
+  max_edge_radius: 3.5
+  reachability_cutoff: 35.0
+
+scenarios:
+  - name: "straight_corridor"
+    start_xy: [0.0, 0.0]
+    target_xy: [0.0, 3.0]
+    mode: "direct_latent"
+    max_steps: 200
+
+  - name: "sharp_turn"
+    start_xy: [0.0, 0.0]
+    target_xy: [8.0, 8.0]
+    mode: "planner"
+    max_steps: 400
+    planner_cfg:
+      n_landmarks: 1000
+      lookahead_dist: 2.6
+      max_edge_radius: 3.5
+      reachability_cutoff: 35.0
+
+  - name: "corner_recovery"
+    start_xy: [20.0, 0.0]
+    target_xy: [0.0, 20.0]
+    mode: "planner"
+    max_steps: 500
+    planner_cfg:
+      n_landmarks: 1000
+      lookahead_dist: 2.6
+      max_edge_radius: 3.5
+      reachability_cutoff: 35.0
+
+  - name: "custom_subgoal"
+    start_xy: [0.0, 0.0]
+    target_xy: [20.0, 20.0]
+    mode: "custom_waypoints"
+    custom_waypoints:
+      - [0.0, 4.0]
+      - [4.0, 8.0]
+      - [8.0, 8.0]
+      - [12.0, 8.0]
+      - [12.0, 12.0]
+      - [16.0, 12.0]
+      - [20.0, 12.0]
+      - [20.0, 16.0]
+      - [20.0, 20.0]
+    max_steps: 500
+    waypoint_threshold: 1.8
+
+  - name: "custom_z"
+    start_xy: [0.0, 0.0]
+    target_xy: [4.0, 8.0]
+    mode: "custom_z"
+    custom_z: null
+    max_steps: 250
