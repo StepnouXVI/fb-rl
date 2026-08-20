@@ -236,7 +236,7 @@ class BufferGraphPlanner(BasePlanner):
                 l2 = np.linalg.norm(v2)
                 accum += l1
                 is_corner = False
-                if l1 > 0.3 and l2 > 0.3:
+                if l1 > 0.1 and l2 > 0.1:
                     cos_theta = np.dot(v1, v2) / (l1 * l2)
                     if cos_theta < 0.7:  # Turn angle > 45 deg
                         is_corner = True
