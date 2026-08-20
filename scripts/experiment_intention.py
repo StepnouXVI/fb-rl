@@ -648,6 +648,9 @@ def main(cfg: DictConfig):
 
     run_idx = 0
     for sc in selected_scenarios:
+        run_dir = os.path.join(output_dir, sc.name)
+        os.makedirs(run_dir, exist_ok=True)
+
         for seed in seeds:
             run_idx += 1
             seed_suffix = f"_seed{seed}" if len(seeds) > 1 else ""
@@ -672,12 +675,12 @@ def main(cfg: DictConfig):
 
             elapsed = time.perf_counter() - t0
 
-            # Save individual telemetry CSV
-            telemetry_file = os.path.join(output_dir, f"telemetry_{sc.name}{seed_suffix}.csv")
+            # Save individual telemetry CSV in run-specific directory
+            telemetry_file = os.path.join(run_dir, f"telemetry_{sc.name}{seed_suffix}.csv")
             df_telemetry.to_csv(telemetry_file, index=False)
 
-            # Generate plot
-            plot_file = os.path.join(output_dir, f"{sc.name}{seed_suffix}.png")
+            # Generate plot in run-specific directory
+            plot_file = os.path.join(run_dir, f"{sc.name}{seed_suffix}.png")
             plot_scenario_results(
                 summary=summary,
                 df_telemetry=df_telemetry,
