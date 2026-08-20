@@ -254,9 +254,6 @@ class BufferGraphPlanner(BasePlanner):
             self.waypoint_coords = list(self.path_coords)
             self.waypoints = list(self.path_latents)
 
-        self.waypoint_coords.append(self.landmark_coords[goal_idx])
-        self.waypoints.append(goal_z)
-
         curr_c = self.waypoint_coords[0] if self.waypoint_coords else None
         self.last_subgoal_info = {
             "subgoal_xy": [float(curr_c[0]), float(curr_c[1])] if curr_c is not None else None,
@@ -283,8 +280,10 @@ class BufferGraphPlanner(BasePlanner):
             accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
             target_idx += 1
 
-        # 3. Select target latent
-        if target_idx >= len(self.path_coords) - 1:
+        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+
+        # 3. Select target latent (direct goal handover when near terminal zone)
+        if target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2:
             target_latent = self.goal_z
             target_xy = self.path_coords[-1]
             is_goal = True
@@ -298,7 +297,6 @@ class BufferGraphPlanner(BasePlanner):
         if len(self.pos_history) > 40:
             self.pos_history.pop(0)
 
-        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
         is_stuck = False
         if len(self.pos_history) >= 40 and dist_to_final > 2.0:
             if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
@@ -315,6 +313,28 @@ class BufferGraphPlanner(BasePlanner):
             "is_direct_goal": is_goal,
         }
         return np.asarray(action)
+
+    def get_subgoal_latent(self, obs, goal_z, step=0):
+        """Returns the optimal target subgoal latent for the current state and goal."""
+        if not self.path_coords:
+            self.reset(obs, goal_z)
+
+        obs_xy = np.asarray(obs[:2])
+        search_end = min(len(self.path_coords), self.current_path_idx + 12)
+        window_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(self.current_path_idx, search_end)]
+        best_offset = int(np.argmin(window_dists))
+        self.current_path_idx += best_offset
+
+        accum = 0.0
+        target_idx = self.current_path_idx
+        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
+            target_idx += 1
+
+        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+        if target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2:
+            return np.asarray(self.goal_z)
+        return np.asarray(self.path_latents[target_idx])
 
 
 class RecursiveBisectionPlanner(BasePlanner):

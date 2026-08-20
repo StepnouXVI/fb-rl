@@ -17,9 +17,16 @@ def main(cfg: DictConfig):
     os.makedirs(cfg.eval.output_dir, exist_ok=True)
 
     agent, env, train_ds, _, _ = load_pretrained_agent(cfg.eval.checkpoint_dir, cfg.env.split)
-    teacher = BufferGraphPlanner(agent, train_ds["observations"][:5000], n_landmarks=300, hit_threshold=50.0)
+    teacher = BufferGraphPlanner(
+        agent,
+        train_ds["observations"],
+        n_landmarks=1000,
+        max_edge_radius=3.5,
+        reachability_cutoff=35.0,
+        lookahead_dist=2.6,
+    )
 
-    # ponytail: Collect teacher subgoal targets across random offline pairs
+    # Collect teacher subgoal targets across random offline pairs
     n_pairs = cfg.distillation.n_pairs
     print(f"Generating {n_pairs} teacher demonstration pairs...")
     rng = np.random.default_rng(42)
@@ -64,7 +71,6 @@ def main(cfg: DictConfig):
     ).to(device)
 
     optimizer = torch.optim.AdamW(student.parameters(), lr=cfg.distillation.lr, weight_decay=1e-4)
-    loss_fn = nn.MSELoss()
 
     student.train()
     pbar = tqdm(range(1, cfg.distillation.epochs + 1), desc=f"Training Student ({model_type})")
@@ -74,12 +80,14 @@ def main(cfg: DictConfig):
             bx, by = bx.to(device), by.to(device)
             optimizer.zero_grad()
             pred = student(bx)
-            loss = loss_fn(pred, by)
+            cos_loss = 1.0 - torch.nn.functional.cosine_similarity(pred, by, dim=-1).mean()
+            mse_loss = torch.nn.functional.mse_loss(pred, by)
+            loss = cos_loss + 0.1 * mse_loss
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * len(bx)
         mean_loss = total_loss / len(dataset)
-        pbar.set_postfix({"mse_loss": f"{mean_loss:.4f}"})
+        pbar.set_postfix({"loss": f"{mean_loss:.4f}"})
 
     save_path = os.path.join(cfg.eval.output_dir, f"distilled_{model_type}_{cfg.env.split}.pt")
     torch.save(student.state_dict(), save_path)

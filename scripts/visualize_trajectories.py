@@ -352,9 +352,22 @@ def plot_path_with_teleports(
 
 
 def extract_executed_waypoints(sg_df):
-    """Extracts sequentially visited Dijkstra waypoints from subgoal history."""
+    """Extracts sequentially visited Dijkstra waypoints or full planned chain from subgoal history."""
     if sg_df is None or sg_df.empty:
         return []
+
+    # Prioritize exact planned Dijkstra sequence if logged in planned_waypoints column
+    if "planned_waypoints" in sg_df.columns:
+        pw_series = sg_df["planned_waypoints"].dropna()
+        if not pw_series.empty:
+            for val in pw_series:
+                try:
+                    pts = json.loads(val) if isinstance(val, str) else val
+                    if isinstance(pts, list) and len(pts) >= 2:
+                        return [[float(p[0]), float(p[1])] for p in pts]
+                except Exception:
+                    pass
+
     sg_valid = sg_df.dropna(subset=["subgoal_x", "subgoal_y"])
     visited = []
     for _, row in sg_valid.iterrows():
