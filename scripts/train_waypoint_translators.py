@@ -173,6 +173,15 @@ def main(cfg: DictConfig):
     latent_dim = agent.config["latent_dim"]
     obs_dim = dataset["states"].shape[-1]
 
+    total_steps = (n_train // cfg.batch_size) * cfg.epochs
+    lr_schedule = optax.warmup_cosine_decay_schedule(
+        init_value=1e-5,
+        peak_value=cfg.lr,
+        warmup_steps=int(0.05 * total_steps),
+        decay_steps=total_steps,
+        end_value=1e-6,
+    )
+
     if cfg.mode == "single_wp":
         model_def = FlaxSingleWaypointTranslator(
             obs_dim=obs_dim,
@@ -196,7 +205,7 @@ def main(cfg: DictConfig):
 
         optimizer = optax.chain(
             optax.clip_by_global_norm(1.0),
-            optax.adamw(learning_rate=cfg.lr, weight_decay=1e-4),
+            optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4),
         )
         opt_state = optimizer.init(params)
         step_fn = make_single_wp_train_step(model_def.apply, frozen_actor_fn, frozen_f_fn, frozen_b_fn, optimizer)
@@ -238,7 +247,7 @@ def main(cfg: DictConfig):
 
         optimizer = optax.chain(
             optax.clip_by_global_norm(1.0),
-            optax.adamw(learning_rate=cfg.lr, weight_decay=1e-4),
+            optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4),
         )
         opt_state = optimizer.init(params)
         step_fn = make_sequence_wp_train_step(model_def.apply, frozen_actor_fn, frozen_f_fn, frozen_b_fn, optimizer)
@@ -269,6 +278,9 @@ def main(cfg: DictConfig):
     num_batches = n_train // cfg.batch_size
     history = []
     log_file = os.path.join(run_dir, f"training_{cfg.mode}_{cfg.split}.log")
+
+    best_val_mse = float("inf")
+    best_params = params
 
     print(f"\nStarting {cfg.mode.upper()} Training on RTX 4070 ({cfg.epochs} epochs, {num_batches} batches/epoch)...")
     with open(log_file, "w") as lf:
@@ -308,12 +320,16 @@ def main(cfg: DictConfig):
             avg_train = {k: np.mean([m[k] for m in epoch_metrics]) for k in epoch_metrics[0].keys()}
             elapsed = time.perf_counter() - t0
 
+            if val_metrics["val_action_mse"] < best_val_mse:
+                best_val_mse = val_metrics["val_action_mse"]
+                best_params = params
+
             log_line = (
-                f"Epoch {epoch:03d}/{cfg.epochs:03d} [{elapsed:.2f}s] | "
+                f"Epoch {epoch:04d}/{cfg.epochs:04d} [{elapsed:.2f}s] | "
                 f"Loss: {avg_train['loss']:.4f} (BC: {avg_train['loss_bc']:.4f}, Act: {avg_train['loss_action']:.4f}, "
                 f"Reach: {avg_train['loss_reach']:.4f}, Goal: {avg_train['loss_goal']:.4f}) | "
                 f"Train CosSim: {avg_train['cos_sim']:.4f} | "
-                f"Val CosSim: {val_metrics['val_cos_sim']:.4f} | Val ActMSE: {val_metrics['val_action_mse']:.4f}"
+                f"Val CosSim: {val_metrics['val_cos_sim']:.4f} | Val ActMSE: {val_metrics['val_action_mse']:.4f} (Best: {best_val_mse:.4f})"
             )
             print(log_line)
 
@@ -352,7 +368,7 @@ def main(cfg: DictConfig):
     save_path = os.path.join(run_dir, f"checkpoint_{cfg.mode}_{cfg.split}.pkl")
     with open(save_path, "wb") as f:
         pickle.dump({
-            "params": flax.core.unfreeze(params),
+            "params": flax.core.unfreeze(best_params),
             "mode": cfg.mode,
             "split": cfg.split,
             "config": OmegaConf.to_container(cfg, resolve=True),
@@ -365,7 +381,7 @@ def main(cfg: DictConfig):
     canonical_path = os.path.join(canonical_dir, f"best_{cfg.mode}_{cfg.split}.pkl")
     with open(canonical_path, "wb") as f:
         pickle.dump({
-            "params": flax.core.unfreeze(params),
+            "params": flax.core.unfreeze(best_params),
             "mode": cfg.mode,
             "split": cfg.split,
             "config": OmegaConf.to_container(cfg, resolve=True),

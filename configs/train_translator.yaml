@@ -7,18 +7,18 @@ split: medium
 checkpoint_dir: fb-test
 
 # Dataset Generation
-n_pairs: 30000
+n_pairs: 60000
 noise_sigma: 0.05
 max_seq_len: 16
 lookahead_dist: 2.6
 
 # Network Architecture
-hidden_dim: 256
-n_layers: 2
-num_heads: 4
+hidden_dim: 384
+n_layers: 4
+num_heads: 6
 
 # Training Hyperparameters
-epochs: 100
+epochs: 1000
 batch_size: 256
 lr: 3e-4
 l_cos: 1.0
