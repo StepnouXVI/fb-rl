@@ -136,11 +136,11 @@
 % ==============================================================================
 % 4. DEEP REFINEMENT & SPHERE PROJECTION (STEP 4)
 % ==============================================================================
-\node[box=themeteal, minimum width=7.2cm, minimum height=2.2cm] (sphere_card) at (8.75, -1.6) {};
-\node[badge=themeteal] (b4) at (5.4, -0.8) {4};
+\node[box=themeteal, minimum width=7.0cm, minimum height=2.2cm] (sphere_card) at (8.75, -1.6) {};
+\node[badge=themeteal] (b4) at (5.5, -0.8) {4};
 \node[font=\bfseries\footnotesize, text=themeteal!90!black, right=2pt of b4] {Уточнение и проекция на сферу $\mathbb{S}^{d-1}$};
 
-\node[subbox=themeteal, font=\scriptsize, minimum width=6.6cm] at (8.75, -1.75) 
+\node[subbox=themeteal, font=\scriptsize, minimum width=6.4cm] at (8.75, -1.75) 
     {$\text{Dense}(256) \to \text{LN} \to \text{GELU} \to \text{Dense}(128) \to \hat{z}$\\
     \textbf{Командный латент}: $z_{\text{cmd}} = \sqrt{d} \cdot \frac{\hat{z}}{\|\hat{z}\|_2 + \epsilon} \in \mathbb{S}^{d-1}$};
 
@@ -150,19 +150,19 @@
 % 5. FROZEN EXECUTION & PHYSICS REGULARIZATION (STEP 5)
 % ==============================================================================
 % Low-Level Policy
-\node[box=themegray, minimum width=4.3cm, minimum height=1.6cm] (frozen_pi) at (2.4, -1.6) 
+\node[box=themegray, minimum width=4.1cm, minimum height=1.6cm] (frozen_pi) at (2.2, -1.6) 
     {\textbf{5. Замороженный актор} $\pi^\ell$\\\scriptsize $\pi^\ell(a_t \mid s_t, z_{\text{cmd}})$\\\scriptsize Низкоуровневая политика};
 
 % Forward Representation
-\node[box=themecyan, minimum width=4.3cm, minimum height=1.6cm] (frozen_f) at (15.1, -1.6) 
+\node[box=themecyan, minimum width=4.1cm, minimum height=1.6cm] (frozen_f) at (15.3, -1.6) 
     {\textbf{Прямая модель} $F$\\\scriptsize $F(s_t, z_{\text{cmd}}) \in \mathbb{R}^d$\\\scriptsize Оценка достижимости};
 
 \draw[carr=themeteal] (sphere_card.west) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (frozen_pi.east);
 \draw[carr=themeteal] (sphere_card.east) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (frozen_f.west);
 
 % Backprop Gradient Flow Indication
-\draw[darr=themered, line width=1.1pt] (frozen_pi.north) -- ++(0, 0.6) -| ([xshift=-25pt]sphere_card.north);
-\draw[darr=themered, line width=1.1pt] (frozen_f.north) -- ++(0, 0.6) -| ([xshift=25pt]sphere_card.north);
+\draw[darr=themered, line width=1.1pt] (frozen_pi.north) -- ++(0, 0.6) -| ([xshift=-20pt]sphere_card.north);
+\draw[darr=themered, line width=1.1pt] (frozen_f.north) -- ++(0, 0.6) -| ([xshift=20pt]sphere_card.north);
 \node[font=\scriptsize\bfseries, text=themered, fill=white, inner sep=2pt, rounded corners=3pt] at (8.75, -0.2) 
     {$\nabla_\theta$ Градиенты функций потерь через замороженные сети};
 

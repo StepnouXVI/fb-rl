@@ -124,7 +124,7 @@
 
 % Framework Enclosing Box
 \draw[rounded corners=8pt, line width=0.9pt, draw=themeteal!50!gray, fill=themeteal!2] 
-    (-0.5, -2.2) rectangle (17.5, 3.4);
+    (-0.5, -2.4) rectangle (17.5, 3.4);
 
 % Inputs
 \node[box=themeblue, minimum width=2.0cm, minimum height=1.1cm] (f_s) at (0.8, 2.0) 
@@ -192,14 +192,14 @@
 \draw[carr=themeteal] (sphere_box) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (f_pil);
 \draw[carr=themegreen] (f_pil) -- node[above=2pt, font=\scriptsize\bfseries] {$a_t \in \mathcal{A}$} (f_env);
 
-% State feedback arrow cleanly routed along bottom of policy
-\draw[darr=themeblue] (f_s.west) -- ++(-0.35, 0) |- ([yshift=-4pt]f_pil.west) 
-    node[pos=0.25, left=1pt, font=\scriptsize\bfseries, text=themeblue!90!black] {$s_t$};
+% State feedback arrow cleanly routed below environment box into policy
+\draw[darr=themeblue] (f_s.west) -- ++(-0.2, 0) |- (8.2, -2.1) -- (f_pil.south) 
+    node[pos=0.15, left=1pt, font=\scriptsize\bfseries, text=themeblue!90!black] {$s_t$};
 
 % ==============================================================================
 % BOTTOM UNIFIED COMPARISON BANNER
 % ==============================================================================
-\node[pill=themegray, font=\footnotesize, minimum width=17.5cm, inner sep=6pt] at (8.5, -3.1) 
+\node[pill=themegray, font=\footnotesize, minimum width=17.5cm, inner sep=6pt] at (8.5, -3.2) 
     {\textbf{Базовый метод:} $M(s, g) \to \pi^h \to \pi^\ell \implies \mathbf{42.5\%}$ успеха (коллапс) \quad$\vert$\quad \textbf{Предлагаемый метод:} Граф $\to$ Планировщик $\to \pi^\ell \implies \mathbf{93.3\%}$ успеха};
 
 \end{tikzpicture}
