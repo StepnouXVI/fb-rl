@@ -1,233 +1,103 @@
-\documentclass[twocolumn,10pt,a4paper]{article}
+\documentclass[10pt,twocolumn,letterpaper]{article}
 
-% --- Font and Language setup for LuaLaTeX ---
-\usepackage{fontspec}
-\usepackage[russian,english]{babel}
-
-\setmainfont{CMU Serif}
-\setsansfont{CMU Sans Serif}
-\setmonofont{CMU Typewriter Text}
-
-\usepackage[margin=1.7cm,columnsep=0.6cm]{geometry}
-\usepackage{amsmath,amssymb,amsfonts}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools}
+\usepackage{booktabs,tabularx,multirow,colortbl}
 \usepackage{graphicx}
-\usepackage{booktabs}
-\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds,shadows,decorations.pathreplacing}
 \usepackage{hyperref}
-\usepackage{cite}
 \usepackage{microtype}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+
+\definecolor{mainblue}{RGB}{31, 119, 180}
+\definecolor{darkblue}{RGB}{20, 70, 120}
+\definecolor{highlightorange}{RGB}{255, 127, 14}
+\definecolor{softgreen}{RGB}{44, 160, 44}
+\definecolor{softpurple}{RGB}{148, 103, 189}
+\definecolor{lightgraybg}{RGB}{245, 247, 250}
+\definecolor{bordergray}{RGB}{210, 215, 225}
 
 \hypersetup{
     colorlinks=true,
-    linkcolor=blue,
-    citecolor=blue,
-    urlcolor=blue,
-    pdftitle={Топологическое графовое планирование и нейросетевая дистилляция поверх Forward-Backward представлений},
-    pdfauthor={Исследовательская группа}
+    linkcolor=mainblue,
+    citecolor=mainblue,
+    urlcolor=mainblue,
+    pdftitle={High-Level Sequence Reasoning and Latent Plan Distillation in Forward-Backward Representations},
+    pdfauthor={Research and Engineering Report}
 }
 
-\title{\Large \bfseries Топологическое графовое планирование со скользящим окном\\и нейросетевая дистилляция для Zero-Shot RL поверх FB-представлений}
-
-\author{
-  \textbf{Исследовательская группа}\\
-  \small Deep Learning \& Reinforcement Learning Lab\\
-  \small \href{mailto:research@example.com}{\texttt{research@example.com}}
+\newtcolorbox{keyinsight}[1][]{
+    enhanced,
+    colback=lightgraybg,
+    colframe=mainblue,
+    coltitle=white,
+    fonttitle=\bfseries\sffamily,
+    title={#1},
+    arc=4pt,
+    boxrule=1pt,
+    left=6pt,
+    right=6pt,
+    top=4pt,
+    bottom=4pt,
+    before skip=8pt,
+    after skip=8pt
 }
 
-\date{\today}
+\newtcolorbox{interviewbox}[1][]{
+    enhanced,
+    colback=lightgraybg,
+    colframe=highlightorange,
+    coltitle=white,
+    fonttitle=\bfseries\sffamily,
+    title={#1},
+    arc=4pt,
+    boxrule=1pt,
+    left=6pt,
+    right=6pt,
+    top=4pt,
+    bottom=4pt,
+    before skip=8pt,
+    after skip=8pt
+}
+
+\title{\LARGE \bfseries High-Level Sequence Reasoning \& Latent Plan Distillation\\in Forward-Backward Representations: Overcoming Horizon Collapse in Complex Mazes}
+\author{\textbf{Research \& Technical Report} \\ FB-RL Reinforcement Learning Laboratory \\ \texttt{github.com/StepnouXVI/fb-rl} (branch: \texttt{optimization-and-translator})}
+\date{August 2026}
 
 \begin{document}
 
-\selectlanguage{russian}
 \maketitle
 
 \begin{abstract}
-В задаче Zero-Shot Reinforcement Learning (Zero-Shot RL) агент обучается на неразмеченном оффлайн-датасете без внешних вознаграждений с целью мгновенного решения произвольных целевых задач во время тестирования. Подход Forward-Backward (FB) представлений раскладывает меру преемника (Successor Measure) на низкоранговые латентные факторы $F(s, z)^\top B(s')$. Однако одношаговый контроллер жадно стремится к глобальной цели $z \approx B(g)$, застревая перед геометрическими барьерами лабиринта ($42.5\%$ успехов). В данной работе мы предлагаем алгоритм топологического планирования Дейкстры по ориентирам буфера ($N=1000$) с непрерывным скользящим окном опережения (\textit{Sliding Lookahead}, $L=2.6\,\text{м}$, $\tau_{\text{cutoff}}=35.0$, $R_{\max}=3.5\,\text{м}$), работающий с $0\%$ знания геометрии карты. Данный подход достигает $\mathbf{93.3 \pm 1.4\%}$ успешных эпизодов на бенчмарке \texttt{antmaze-medium-navigate-v0} ($100\%$ на ключевых диагональных задачах 1, 2 и 5) со средней длиной траектории $472 \pm 12$ шагов при времени отклика $1.02\,\text{мс}$/шаг. Кроме того, мы исследуем дистилляцию графового планировщика в глубокие нейросетевые архитектуры: (1) Deep ResNet с 1D-эффективным канальным вниманием (\texttt{ResNet-ECA}), (2) Модель с вентильным кросс-вниманием и активациями SwiGLU (\texttt{Gated-CrossAttn}), и (3) Плотную сеть с канальной модуляцией (\texttt{Dense-ECA}). Дистиллированная модель \texttt{Gated-CrossAttn} достигает $86.2 \pm 1.8\%$ успехов, а компактная \texttt{Dense-ECA} ($179\text{k}$ параметров) обеспечивает $84.2 \pm 2.2\%$ при ультранизкой задержке $0.52\,\text{мс}$/шаг.
+Zero-shot goal-conditioned reinforcement learning using Forward-Backward (FB) representations allows executing diverse tasks without task-specific retraining. However, in long-horizon navigation benchmarks such as \texttt{antmaze-medium}, standard hierarchical controllers $\pi^h(s_t, B(g))$ suffer from severe \textit{horizon collapse}: a single latent intention $z$ cannot negotiate multi-hop topological corridors separated by physical walls, causing agents to get trapped in local potential wells (78.8\% success rate). In this paper, we systematically investigate, formulate, and benchmark three complementary paradigms that solve this challenge using frozen FB representations without world models or online environment interactions:
+\begin{enumerate}[leftmargin=*,noitemsep]
+    \item \textbf{Topological Graph Planning (\texttt{BufferGraphPlanner})}: Constructs an offline reachability graph $M(s, g) = F(s, B(g))^\top B(g)$ over dataset landmarks and extracts optimal multi-hop paths via Dijkstra's algorithm.
+    \item \textbf{Amortized $O(1)$ Latent Plan Distillation (\texttt{DistilledJAXPlanner})}: Compresses global Dijkstra paths into an end-to-end differentiable Gated Cross-Attention student network trained via JAX/XLA backpropagation through frozen policy $\pi^\ell$ and forward representations $F$, reaching \textbf{85.0 $\pm$ 3.5\%} success rate with \textbf{0.56 ms} inference latency.
+    \item \textbf{Enhanced Sequence-Aware Attention Transformer (\texttt{EnhancedSequencePlanner})}: Incorporates ALiBi distance-decay attention bias ($-\lambda m_h k$), local-global windowing, curvature turn encodings, and auxiliary local anchoring to prevent wall-leakage, achieving State-of-the-Art performance of \textbf{88.0 $\pm$ 5.2\%} across 10 random seeds.
+\end{enumerate}
+We provide full mathematical derivations, physical gait analyses of MuJoCo torque control, ablation studies, and comprehensive Q\&A preparation for technical defense.
 \end{abstract}
 
-\section{Введение}
-В парадигме Zero-Shot RL агент исследует пространство состояний $\mathcal{S}$ без внешней награды на этапе оффлайн-предобучения~\cite{touati2021learning}. Мера преемника $M^\pi_s(s') = (1-\gamma)\sum_{t=0}^\infty \gamma^t \mathbb{P}(s_t = s' \mid s_0 = s, \pi)$ описывает дисконтированную плотность будущих состояний. Факторизация меры через прямое $F: \mathcal{S} \times \mathcal{Z} \to \mathbb{R}^d$ и обратное $B: \mathcal{S} \to \mathbb{R}^d$ отображения задает плотность~\cite{stojanovic2026switching}:
-\begin{equation}
-    \frac{dM^{\pi_z}_s}{d\rho}(s') \approx F(s, z)^\top B(s'), \quad \|z\|_2 = \sqrt{d}.
-\end{equation}
-
-В иерархическом управлении базовый контроллер выбирает единичную интенцию $z \approx B(g)$. Однако при наличии препятствий $F(s, B(g))^\top B(g) \approx 0$, так как прямая траектория блокирована стенами. В результате жадный контроллер застревает в тупиках, демонстрируя лишь $42.5\%$ успешных доездов.
-
-Для преодоления этой проблемы мы разрабатываем и исследуем два взаимодополняющих направления:
-\begin{enumerate}
-    \item \textbf{Топологический граф со скользящим опережением (Sliding Lookahead Dijkstra)}: Построение квазиметрического графа достижимости на $N=1000$ ориентирах из оффлайн-буфера с весами $c(s_i, s_j) = -\log \max(F(s_i, B(s_j))^\top B(s_j) / M_{\max}, \epsilon)$ и непрерывным вектором опережения $L = 2.6\,\text{м}$. Метод работает без доступа к геометрии стен лабиринта ($0\%$ map cheating) и повышает успешность до $\mathbf{93.3\%}$ ($1.02\,\text{мс}$/шаг).
-    \item \textbf{Нейросетевая дистилляция}: Сжатие графового поиска в высокоемкие нейросетевые модели со вниманием (ECA-1D, SwiGLU, Cross-Attention), обеспечивающие задержку инференса $< 0.6\,\text{мс}$/шаг при сохранении высокой результативности.
-\end{enumerate}
-
-\section{Топологический графовый планировщик со скользящим окном}
-
-\subsection{Построение графа достижимости}
-Из оффлайн-буфера $\mathcal{D}_{\text{offline}}$ равномерно сэмплируется множество ориентиров $\mathcal{V} = \{s_i\}_{i=1}^N$ ($N=1000$). Каждому состоянию $s_i$ сопоставляется его латентный дескриптор $z_i = \operatorname{normalize}(B(s_i)) \in \mathbb{R}^d$.
-
-Матрица ориентированных стоимостей перехода $\mathbf{C} \in \mathbb{R}^{N \times N}$ вычисляется через логарифм меры достижимости:
-\begin{equation}
-    c_0(s_i, s_j) = \max\left(0, -\log \frac{F(s_i, z_j)^\top z_j}{M_{\max}}\right),
-\end{equation}
-с наложением геометрического и динамического фильтров:
-\begin{equation}
-    c(s_i, s_j) = \begin{cases}
-    \infty, & \text{если } d_{ij} > R_{\max} \lor F_i^\top z_j < \tau, \\
-    c_0(s_i, s_j), & \text{иначе},
-    \end{cases}
-\end{equation}
-где $d_{ij} = \|s_i^{(xy)} - s_j^{(xy)}\|_2$, $F_i = F(s_i, z_j)$, $M_{\max} = \max_k (F(s_k, z_k)^\top z_k)$, $R_{\max} = 3.5\,\text{м}$, а $\tau = 35.0$. Матрица кратчайших путей и предшественников вычисляется алгоритмом Дейкстры в $O(V^2)$ один раз при инициализации.
-
-\subsection{Непрерывное скользящее опережение (Sliding Lookahead)}
-Классический дискретный переход от подцели к подцели $w_k \to w_{k+1}$ страдает от эффекта «стоп-энд-гоу» и колебаний агента в окрестности узлов. В нашем алгоритме реализовано непрерывное скользящее окно:
-\begin{enumerate}
-    \item На каждом шаге $t$ определяется ближайший прогресс-индекс $k^*$ на геодезической траектории $P^* = (v_0, v_1, \dots, v_K)$.
-    \item Планировщик аккумулирует евклидово расстояние вдоль полилинии пути до достижения дистанции опережения $L = 2.6\,\text{м}$:
-    \begin{equation}
-        j^* = \min \left\{ j > k^* \;\middle|\; \sum_{m=k^*}^{j-1} \|v_{m+1} - v_m\|_2 \ge L \right\}.
-    \end{equation}
-    \item В качестве текущей латентной интенции для низкоуровневой политики $\pi_l(a \mid s, z_t)$ выдается $z_t = B(v_{j^*})$.
-\end{enumerate}
-Это обеспечивает гладкий профиль скорости, исключает застревания на углах лабиринта и гарантирует строгое следование коридорам.
-
-\section{Архитектуры дистиллированных моделей}
-
-\subsection{1D Efficient Channel Attention (ECA-1D)}
-Классический механизм канального внимания (SE-Net) использует сжатие размерности, разрушающее прямые корреляции между признаками. Следуя~\cite{wang2020eca}, мы реализуем 1D-эффективное канальное внимание без снижения размерности:
-\begin{equation}
-    k = \psi(C) = \left| \frac{\log_2(C)}{\gamma} + \frac{b}{\gamma} \right|_{\text{odd}}, \quad \omega = \sigma\left(\text{Conv1D}_k(x)\right),
-\end{equation}
-где $\tilde{x} = x \odot \omega$, $\gamma = 2$, $b = 1$. Модуляция $\omega$ избирательно усиливает пространственно-семантические координаты подцелей.
-
-\subsection{Глубокий ResNet с ECA-1D (\texttt{ResNet-ECA})}
-Сеть \texttt{ResNet-ECA} состоит из входной проекции $\text{Linear}(d_s + d_z, d_{\text{hid}})$, за которой следуют $N_b = 4$ остаточных блока с LayerNorm и GELU:
-\begin{align}
-    \tilde{h}^{(l)} &= \text{GELU}\left(\text{Linear}\left(\text{LN}\left(h^{(l)}\right)\right)\right), \\
-    h^{(l+1)} &= h^{(l)} + \text{ECA}\left(\text{Linear}\left(\text{GELU}\left(\text{LN}\left(\tilde{h}^{(l)}\right)\right)\right)\right).
-\end{align}
-Выходная голова проецирует вектор в латентное пространство $z_{w}^* \in \mathbb{R}^{d_z}$.
-
-\subsection{Вентильное кросс-внимание со SwiGLU (\texttt{Gated-CrossAttn})}
-Для явного моделирования нелинейного взаимодействия между текущим состоянием $s \in \mathbb{R}^{d_s}$ и целевой латентной интенцией $z_g \in \mathbb{R}^{d_z}$ мы используем Multi-Head Cross-Attention~\cite{vaswani2017attention} и блоки SwiGLU~\cite{shazeer2020glu}:
-\begin{equation}
-    \text{CrossAttn}(Q, K, V) = \text{Softmax}\left(\frac{Q K^\top}{\sqrt{d_k}}\right) V,
-\end{equation}
-\begin{equation}
-    \text{SwiGLU}(h) = \left( W_{\text{gate}} h \odot \text{SiLU}(W_{\text{val}} h) \right) W_{\text{out}},
-\end{equation}
-где $\text{SiLU}(u) = u \cdot \sigma(u)$. Финальный слой ECA-модуляции обогащает агрегированное представление перед проекцией.
-
-\subsection{Плотная сеть с канальным вниманием (\texttt{Dense-ECA})}
-Архитектура \texttt{Dense-ECA}~\cite{huang2017dense} использует конкатенацию признаков всех предшествующих слоев:
-\begin{equation}
-    x_l = \text{ECA}\Big(\text{GELU}\big(\text{LN}\big(W_l [x_0, x_1, \dots, x_{l-1}]\big)\big)\Big),
-\end{equation}
-что обеспечивает компактность ($179\text{k}$ параметров) при высоком качестве обобщения.
-
-\section{Процедура дистилляции}
-Обучающая выборка $\mathcal{D}_{\text{distill}} = \{(s_i, z_{g_i}, z_{w^*}^i)\}_{i=1}^M$ генерируется с помощью учителя Дейкстры ($M = 3500$ пар, $80\%$ Train, $20\%$ Val). Оптимизация параметров $\theta$ выполняется алгоритмом AdamW ($lr=10^{-3}$, weight decay $=10^{-4}$) с расписанием Cosine Annealing на протяжении 30 эпох по функции потерь:
-\begin{equation}
-    \mathcal{L}(\theta) = \frac{1}{B}\sum_{i=1}^B \|\hat{z}_i - z_i^*\|_2^2 + \frac{\lambda}{B}\sum_{i=1}^B \left(1 - \frac{\hat{z}_i^\top z_i^*}{\|\hat{z}_i\|_2 \|z_i^*\|_2}\right),
-\end{equation}
-где $\lambda = 0.5$.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.96\textwidth]{figures/advanced_architecture_comparison.pdf}
-\caption{Сравнительный анализ архитектур дистилляции на выборке 3500 пар: (a) Сходимость функции потерь, (b) Рост косинусного сходства, (c) Связь емкости и обобщающей способности, (d) Вычислительная сложность и латентность.}
-\label{fig:adv_arch}
-\end{figure*}
-
-\section{Эмпирические результаты}
-
-\subsection{Сравнение архитектур нейросетей}
-В Таблице~\ref{tab:distill_metrics} приведены результаты обучения и вычислительные характеристики исследованных моделей.
-
-\begin{table}[htbp]
-\centering
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lccccc}
-\toprule
-\textbf{Модель} & \textbf{Параметры} & \textbf{MFLOPs} & \textbf{Val Loss} & \textbf{Val Cosine} & \textbf{Latency} \\
-\midrule
-Standard-MLP & $140,160$ & $0.28$ & $0.3265$ & $0.8599$ & $\mathbf{0.10\text{ мс}}$ \\
-Dense-ECA & $\mathbf{179,276}$ & $\mathbf{0.35}$ & $\mathbf{0.2998}$ & $0.8721$ & $0.52\text{ мс}$ \\
-ResNet-ECA & $621,332$ & $1.23$ & $0.3183$ & $0.8660$ & $0.61\text{ мс}$ \\
-Gated-CrossAttn & $2,433,925$ & $4.85$ & $0.3020$ & $\mathbf{0.8728}$ & $1.78\text{ мс}$ \\
-\bottomrule
-\end{tabular}%
-}
-\caption{Метрики дистилляции на 3500 парах учителя Дейкстры (30 эпох, Cosine Annealing, Val split = 20\%).}
-\label{tab:distill_metrics}
-\end{table}
-
-\textbf{Ключевые выводы}:
-\begin{enumerate}
-    \item \textbf{Направленность}: \texttt{Gated-CrossAttn} достигает наивысшего косинусного сходства ($\mathbf{0.8728}$) благодаря механизму внимания, разрешающему сложные геометрические конфигурации подцелей.
-    \item \textbf{Компактность Dense-ECA}: Сеть \texttt{Dense-ECA} демонстрирует минимальную валидационную ошибку ($\text{Val Loss} = \mathbf{0.2998}$) при $179\text{k}$ параметров.
-\end{enumerate}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\linewidth]{figures/attention_maps_or_radar.pdf}
-\caption{Слева: Тепловая карта кросс-внимания между токенами состояния и цели. Справа: Радарная диаграмма многокритериального сравнения.}
-\label{fig:attn_radar}
-\end{figure}
-
-\subsection{Многосидовый бенчмарк в среде AntMaze}
-В Таблице~\ref{tab:planning_comparison} представлены результаты тестирования на бенчмарке \texttt{antmaze-medium-navigate-v0} по 15 эпизодам на каждую из 5 тестовых задач (всего 75 эпизодов на метод).
-
-\begin{table}[htbp]
-\centering
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Метод} & \textbf{Success (\%)} & \textbf{Шаги} & \textbf{Latency (мс)} & \textbf{$p$-value} \\
-\midrule
-Single-Intention & $42.5 \pm 3.1$ & $485 \pm 24$ & $\mathbf{0.08}$ & --- \\
-Recursive Bisection & $72.4 \pm 2.8$ & $\mathbf{348 \pm 19}$ & $2.45$ & $1.2\times 10^{-6}$ \\
-\textbf{Buffer Graph Dijkstra} & $\mathbf{93.3 \pm 1.4}$ & $472 \pm 12$ & $1.02$ & $\mathbf{3.5\times 10^{-9}}$ \\
-\midrule
-Standard-MLP & $81.5 \pm 2.5$ & $315 \pm 16$ & $\mathbf{0.10}$ & $8.1\times 10^{-8}$ \\
-Dense-ECA & $84.2 \pm 2.2$ & $304 \pm 15$ & $0.52$ & $2.1\times 10^{-8}$ \\
-ResNet-ECA & $85.6 \pm 1.9$ & $298 \pm 14$ & $0.61$ & $9.4\times 10^{-9}$ \\
-Gated-CrossAttn & $\mathbf{86.2 \pm 1.8}$ & $\mathbf{295 \pm 13}$ & $1.78$ & $4.1\times 10^{-9}$ \\
-\bottomrule
-\end{tabular}%
-}
-\caption{Сравнение контроллеров на \texttt{antmaze-medium-navigate-v0} (95\% CI).}
-\label{tab:planning_comparison}
-\end{table}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\linewidth]{figures/success_rate_comparison.pdf}
-\caption{Доля успешных эпизодов (\%) по методам планирования.}
-\label{fig:success_rates}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\linewidth]{figures/latency_vs_performance.pdf}
-\caption{Парето-фронтир: Доля успехов против времени вывода.}
-\label{fig:pareto}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.92\linewidth]{figures/trajectory_rollouts.pdf}
-\caption{Качественные 2D-траектории в лабиринте: базовый агент застревает в стене, а планировщик Дейкстры со скользящим окном гладко огибает коридоры без задержек.}
-\label{fig:trajectories}
-\end{figure}
-
-\textbf{Анализ задач и Парето-фронтира}:
-\begin{itemize}
-    \item \textbf{Buffer Graph Dijkstra} со скользящим окном достигает $\mathbf{93.3\%}$ успехов в общем зачете и $\mathbf{100\%}$ на сложных задачах дальней диагональной навигации (Task 1: SW $\to$ NE, Task 2: NW $\to$ SE, Task 5: SE $\to$ SW), где базовый single-intention агент терпит крах ($20$--$33\%$).
-    \item Скользящее окно $L = 2.6\,\text{м}$ устраняет паразитные циклы и петли самопересечений (падение коэффициента пересечений с $12.0$ до $1.8$).
-    \item Дистиллированные модели формируют доминирующий Парето-фронтир (Рис.~\ref{fig:pareto}): \texttt{ResNet-ECA} достигает $85.6\%$ при задержке $0.61\,\text{мс}$, а \texttt{Gated-CrossAttn} обеспечивает $86.2\%$.
-\end{itemize}
-
-\section{Заключение}
-В работе представлена законченная методология топологического планирования по мерам преемника и ее дистилляции в глубокие нейросетевые архитектуры. Метод Buffer Graph Dijkstra со скользящим окном опережения ($N=1000$, $L=2.6\,\text{м}$, $\tau=35.0$, $R_{\max}=3.5\,\text{м}$) обеспечивает $93.3\%$ успехов при строгом соблюдении принципа 0\% map cheating. Дистилляция в архитектуры с ECA-1D и кросс-вниманием со SwiGLU позволяет достичь субмиллисекундного инференса с результативностью более $86\%$.
+\input{sections/01_introduction.tex}
+\input{sections/02_related_work.tex}
+\input{sections/03_topological_planning.tex}
+\input{sections/04_distillation.tex}
+\input{sections/05_sequence_reasoning.tex}
+\input{sections/06_lowlevel_execution.tex}
+\input{sections/07_experiments.tex}
+\input{sections/08_interview_defense.tex}
+\input{sections/09_conclusion.tex}
 
 \bibliographystyle{plain}
 \bibliography{references}

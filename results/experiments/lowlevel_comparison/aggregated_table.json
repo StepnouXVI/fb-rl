@@ -1,0 +1,134 @@
+[
+  {
+    "Scenario":"straight_corridor",
+    "Mode":"baseline_high_actor",
+    "Success (%)":"20.0%",
+    "Speed (m\/s)":"2.68 +\/- 0.20",
+    "Steps":"126.4",
+    "Flips":"0.0",
+    "RMS Jerk":"588.6",
+    "Curvature (rad)":"46.44",
+    "Final Dist (m)":"5.55"
+  },
+  {
+    "Scenario":"straight_corridor",
+    "Mode":"fb_latent_optimization",
+    "Success (%)":"60.0%",
+    "Speed (m\/s)":"2.57 +\/- 0.25",
+    "Steps":"114.0",
+    "Flips":"0.0",
+    "RMS Jerk":"547.2",
+    "Curvature (rad)":"44.50",
+    "Final Dist (m)":"2.99"
+  },
+  {
+    "Scenario":"straight_corridor",
+    "Mode":"heading_direction_alignment",
+    "Success (%)":"40.0%",
+    "Speed (m\/s)":"2.79 +\/- 0.23",
+    "Steps":"110.2",
+    "Flips":"0.0",
+    "RMS Jerk":"561.5",
+    "Curvature (rad)":"38.55",
+    "Final Dist (m)":"5.17"
+  },
+  {
+    "Scenario":"straight_corridor",
+    "Mode":"heuristic_joint_controller",
+    "Success (%)":"0.0%",
+    "Speed (m\/s)":"0.05 +\/- 0.02",
+    "Steps":"140.0",
+    "Flips":"0.0",
+    "RMS Jerk":"81.7",
+    "Curvature (rad)":"9.43",
+    "Final Dist (m)":"8.15"
+  },
+  {
+    "Scenario":"sharp_90deg_turn",
+    "Mode":"baseline_high_actor",
+    "Success (%)":"20.0%",
+    "Speed (m\/s)":"2.49 +\/- 0.36",
+    "Steps":"159.6",
+    "Flips":"0.0",
+    "RMS Jerk":"600.7",
+    "Curvature (rad)":"70.53",
+    "Final Dist (m)":"4.37"
+  },
+  {
+    "Scenario":"sharp_90deg_turn",
+    "Mode":"fb_latent_optimization",
+    "Success (%)":"0.0%",
+    "Speed (m\/s)":"2.38 +\/- 0.21",
+    "Steps":"180.0",
+    "Flips":"0.0",
+    "RMS Jerk":"561.4",
+    "Curvature (rad)":"74.26",
+    "Final Dist (m)":"6.55"
+  },
+  {
+    "Scenario":"sharp_90deg_turn",
+    "Mode":"heading_direction_alignment",
+    "Success (%)":"20.0%",
+    "Speed (m\/s)":"2.29 +\/- 0.21",
+    "Steps":"180.0",
+    "Flips":"0.0",
+    "RMS Jerk":"567.8",
+    "Curvature (rad)":"78.09",
+    "Final Dist (m)":"6.30"
+  },
+  {
+    "Scenario":"sharp_90deg_turn",
+    "Mode":"heuristic_joint_controller",
+    "Success (%)":"0.0%",
+    "Speed (m\/s)":"0.04 +\/- 0.02",
+    "Steps":"180.0",
+    "Flips":"0.0",
+    "RMS Jerk":"71.9",
+    "Curvature (rad)":"9.43",
+    "Final Dist (m)":"9.08"
+  },
+  {
+    "Scenario":"s_curve_maneuver",
+    "Mode":"baseline_high_actor",
+    "Success (%)":"40.0%",
+    "Speed (m\/s)":"2.65 +\/- 0.39",
+    "Steps":"279.6",
+    "Flips":"0.0",
+    "RMS Jerk":"598.0",
+    "Curvature (rad)":"116.63",
+    "Final Dist (m)":"5.77"
+  },
+  {
+    "Scenario":"s_curve_maneuver",
+    "Mode":"fb_latent_optimization",
+    "Success (%)":"0.0%",
+    "Speed (m\/s)":"2.50 +\/- 0.30",
+    "Steps":"320.0",
+    "Flips":"0.0",
+    "RMS Jerk":"575.0",
+    "Curvature (rad)":"131.07",
+    "Final Dist (m)":"7.77"
+  },
+  {
+    "Scenario":"s_curve_maneuver",
+    "Mode":"heading_direction_alignment",
+    "Success (%)":"20.0%",
+    "Speed (m\/s)":"2.41 +\/- 0.33",
+    "Steps":"313.6",
+    "Flips":"0.0",
+    "RMS Jerk":"561.7",
+    "Curvature (rad)":"131.16",
+    "Final Dist (m)":"9.12"
+  },
+  {
+    "Scenario":"s_curve_maneuver",
+    "Mode":"heuristic_joint_controller",
+    "Success (%)":"0.0%",
+    "Speed (m\/s)":"0.02 +\/- 0.01",
+    "Steps":"320.0",
+    "Flips":"0.0",
+    "RMS Jerk":"53.8",
+    "Curvature (rad)":"9.43",
+    "Final Dist (m)":"12.81"
+  }
+]

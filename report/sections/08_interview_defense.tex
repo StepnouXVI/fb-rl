@@ -1,0 +1,30 @@
+\section{Technical Interview Defense \& Design Rationale}
+
+To prepare for the final technical interview and defend the engineering decisions in depth, this section summarizes the core design questions, trade-offs, and failure mode analyses.
+
+\begin{interviewbox}[Q1: Why bypass $\pi^h$ and train directly for $\pi^\ell$ in distillation?]
+\textbf{Answer}: The original $\pi^h(z_w \mid s, z_g)$ acts as an information bottleneck: it outputs a diagonal Gaussian distribution in $\mathbb{R}^d$ and was trained with advantage-weighted regression over single-step transitions. When planning along a global trajectory, cascading $\text{Dijkstra} \to \pi^h \to \pi^\ell$ compounds estimation errors at every step. By training our distilled student or waypoint translator directly to predict the command intention $z_{\text{cmd}}$ that minimizes the low-level action discrepancy $\|\pi^\ell(s, z_{\text{cmd}}) - a^*\|_2^2$, we remove the intermediate bottleneck, eliminate stochastic sampling variance, and align the representation directly with the robot's physical actuators.
+\end{interviewbox}
+
+\begin{interviewbox}[Q2: What is the physical mechanism behind the 4-loss distillation?]
+\textbf{Answer}: In Equation \ref{eq:distill_loss}:
+\begin{enumerate}[leftmargin=*,noitemsep]
+    \item $\mathcal{L}_{\text{BC}}$ provides supervised imitation of the teacher's intention.
+    \item $\mathcal{L}_{\text{Action}}$ grounds the gradient in the low-level policy $\pi^\ell$, ensuring the predicted intention does not trigger actuator saturation or torque jitter.
+    \item $\mathcal{L}_{\text{Reach}} = -F(s, z)^\top z$ pushes $z$ into the high-density eigen-directions of the forward representation $F$, preventing the student from predicting "unreachable" intention vectors.
+    \item $\mathcal{L}_{\text{Goal}} = -z^\top B(g)$ provides a global directional compass towards the destination.
+\end{enumerate}
+All 4 losses are differentiated end-to-end via JAX/XLA backpropagation without requiring environment simulation.
+\end{interviewbox}
+
+\begin{interviewbox}[Q3: What happens if we remove the ALiBi distance decay?]
+\textbf{Answer}: Without ALiBi decay, the attention weights Softmax$(\frac{QK^\top}{\sqrt{d}})$ are purely semantic. In $U$-turns or hairpin corridors, a waypoint $w_4$ on the other side of a thin wall has high latent similarity with the state. The cross-attention assigns 30--40\% of its weight to $w_4$, pulling the resultant intention vector $z_{\text{cmd}}$ into the wall (wall-leakage). Adding the linear decay $-\lambda m_h k$ mathematically forces 80\% of the attention mass to remain on local waypoints ($w_1, w_2$), preserving sharp cornering.
+\end{interviewbox}
+
+\begin{interviewbox}[Q4: Why not train a diffusion trajectory model or world model?]
+\textbf{Answer}: Generative trajectory models (e.g., Diffuser) generate raw state trajectories $\tau = (s_0, s_1, \dots, s_T)$ in $\mathbb{R}^{29}$. In continuous quadruped dynamics, hallucinated trajectories often violate physical contact constraints (e.g., foot penetration with the ground or torque limits), requiring expensive inverse kinematics or low-level tracking controllers. In contrast, operating in the latent FB intention space directly queries the verified physical policy $\pi^\ell$, ensuring every executed action is physically realizable.
+\end{interviewbox}
+
+\begin{interviewbox}[Q5: How does the method scale to large mazes (\texttt{antmaze-large})?]
+\textbf{Answer}: Graph planning naturally scales to arbitrarily large mazes by increasing the landmark count $K$ (e.g., from 1,000 to 5,000), as Dijkstra is guaranteed to find global geodesic paths regardless of horizon length. For distilled models, multi-stage trajectory sampling ensures the transformer can extrapolate to longer sequence horizons thanks to ALiBi's linear bias properties \cite{press2021train}.
+\end{interviewbox}
