@@ -61,13 +61,17 @@ def run_comprehensive_benchmark(
     enhanced_seq_ckpt = os.path.join(PROJECT_ROOT, "outputs", "checkpoints", f"best_enhanced_sequence_attn_{split}.pkl")
     distill_ckpt = os.path.join(PROJECT_ROOT, "results", f"distilled_jax_gated_attn_{split}.pkl")
 
-    # Fallback to local root checkpoints if outputs/checkpoints is different
+    # Fallback checks if naming convention differs
     if not os.path.exists(single_wp_ckpt):
-        single_wp_ckpt = f"checkpoint_single_wp_{split}.pkl"
+        single_wp_ckpt = os.path.join(PROJECT_ROOT, f"checkpoint_single_wp_{split}.pkl")
     if not os.path.exists(seq_attn_ckpt):
-        seq_attn_ckpt = f"checkpoint_sequence_attn_{split}.pkl"
+        seq_attn_ckpt = os.path.join(PROJECT_ROOT, f"checkpoint_sequence_attn_{split}.pkl")
     if not os.path.exists(enhanced_seq_ckpt):
-        enhanced_seq_ckpt = f"checkpoint_enhanced_seq_attn_{split}.pkl"
+        alt_ckpt = os.path.join(PROJECT_ROOT, "outputs", "checkpoints", f"best_enhanced_seq_attn_{split}.pkl")
+        if os.path.exists(alt_ckpt):
+            enhanced_seq_ckpt = alt_ckpt
+        else:
+            enhanced_seq_ckpt = os.path.join(PROJECT_ROOT, f"checkpoint_enhanced_seq_attn_{split}.pkl")
 
     planners = []
 

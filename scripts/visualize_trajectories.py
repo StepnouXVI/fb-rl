@@ -826,6 +826,58 @@ def render_3panel_comparison(
     return out_file, outcome
 
 
+def export_all_comparisons(
+    df_traj,
+    df_sg=None,
+    df_lm=None,
+    maze_type="medium",
+    unit_size=4.0,
+    show_portals=True,
+    show_portal_links=True,
+    output_dir="results/plots",
+    seed_filter=None,
+    task_filter=None,
+):
+    """
+    Iterates over all episodes in the trajectories dataset, renders 3-panel comparisons,
+    and automatically classifies each into success/ or failed/ subfolders under the maze category.
+    """
+    norm_type = normalize_maze_type(maze_type)
+    episodes_meta = df_traj[["seed", "task_id", "episode"]].drop_duplicates().sort_values(["seed", "task_id", "episode"])
+
+    if seed_filter is not None:
+        episodes_meta = episodes_meta[episodes_meta["seed"] == seed_filter]
+    if task_filter is not None:
+        episodes_meta = episodes_meta[episodes_meta["task_id"] == task_filter]
+
+    total = len(episodes_meta)
+    print(f"Exporting {total} 3-panel comparisons organized into '{output_dir}/{norm_type}/{{success,failed}}/'...")
+
+    counts = {"success": 0, "failed": 0}
+    for _, row in episodes_meta.iterrows():
+        s = int(row["seed"])
+        t = int(row["task_id"])
+        ep = int(row["episode"])
+        out_file, outcome = render_3panel_comparison(
+            df_traj,
+            df_sg=df_sg,
+            df_lm=df_lm,
+            seed=s,
+            task_id=t,
+            episode=ep,
+            maze_type=norm_type,
+            unit_size=unit_size,
+            show_portals=show_portals,
+            show_portal_links=show_portal_links,
+            output_dir=output_dir,
+            organize_by_outcome=True,
+        )
+        counts[outcome] += 1
+
+    print(f"Export completed: {counts['success']} SUCCESS, {counts['failed']} FAILED plots saved to {output_dir}/{norm_type}/")
+    return counts
+
+
 def export_all_methods_trajectories(
     df_traj,
     df_sg=None,

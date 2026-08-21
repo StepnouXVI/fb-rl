@@ -135,36 +135,56 @@ fb-test/
 └── modules_high_actor
 ```
 
-### 3. Running Benchmarks
+### 3. Waypoint Translators & Distillation Training
 
-Run the parallel benchmark using Hydra configuration:
-
+#### Training on AntMaze-Medium
 ```bash
-# Run full benchmark comparing all planners
-python scripts/run_benchmark.py
+# 1. Train Distilled JAX Gated-CrossAttention Model
+python scripts/train_jax_distillation.py --split=medium --model_type=gated_attn --epochs=40 --batch_size=256 --n_pairs=15000
 
-# Run specific planner comparison (Baseline vs Buffer Graph Dijkstra)
-python scripts/run_benchmark.py planner=baseline_vs_dijkstra eval.seeds=[0] eval.num_episodes=15
+# 2. Train Single-Waypoint Flax Translator
+python scripts/train_waypoint_translators.py split=medium mode=single_wp n_pairs=60000 epochs=1000 batch_size=256
 
-# Run with custom lookahead and landmark parameters
-python scripts/run_benchmark.py planner=buffer_graph planner.n_landmarks=1000 planner.lookahead_dist=2.6
+# 3. Train Enhanced Sequence-Aware Attention Translator
+python scripts/train_waypoint_translators.py split=medium mode=enhanced_seq_attn n_pairs=60000 epochs=1000 batch_size=256
 ```
 
-### 4. Training Distilled Models
-
+#### Training on AntMaze-Large
 ```bash
-# Train advanced neural architectures (ResNet-ECA, Gated-CrossAttn, Dense-ECA)
-python scripts/train_and_benchmark_advanced.py
+# Automated 4-Phase Pipeline (Train Distillation + Single WP + Enhanced Seq Attn + 10-Seed Benchmark)
+bash scripts/run_training_pipeline_large.sh
 
-# Train baseline distilled MLP
-python scripts/train_distillation.py
+# Or run individual steps:
+python scripts/train_jax_distillation.py --split=large --model_type=gated_attn --epochs=100 --batch_size=256 --n_pairs=25000
+python scripts/train_waypoint_translators.py split=large mode=single_wp n_pairs=60000 epochs=1000 batch_size=256
+python scripts/train_waypoint_translators.py split=large mode=enhanced_seq_attn n_pairs=60000 epochs=1000 batch_size=256
 ```
 
-### 5. Generating Visualizations & Reports
+### 4. Running Benchmarks
 
 ```bash
-# Generate trajectory plots and overview figures
+# Comprehensive 10-Seed Benchmark (Single WP, Sequence Attn, Enhanced Seq Attn, Distilled JAX, Baseline, Dijkstra)
+python scripts/benchmark_translators.py --split=medium --num_tasks=5 --episodes_per_task=10
+python scripts/benchmark_translators.py --split=large --num_tasks=5 --episodes_per_task=10
+
+# Hydra Parallel Multi-Worker Benchmark
+python scripts/run_benchmark.py env.split=medium
+python scripts/run_benchmark.py env.split=large
+```
+
+### 5. Generating Trajectories & Visualizations
+
+```bash
+# Generate and export rollouts for all methods organized into results/{method_name}/{split}/{failed,success}/
+python scripts/generate_all_method_rollouts_and_plots.py --split=large --num_tasks=5 --episodes_per_task=3
+
+# Visualize trajectory plots, comparisons, and maze maps
+python scripts/visualize_trajectories.py --maze-type large --compare --task 1 --seed 1 --episode 0
 python scripts/visualize_trajectories.py --maze-type medium
+
+# Run intention & low-level control experiments
+python scripts/experiment_intention.py env=antmaze_medium scenario_name=all
+python scripts/experiment_lowlevel_control.py
 
 # Generate publication-ready Pareto and success rate charts
 python scripts/generate_plots.py
@@ -177,33 +197,37 @@ python scripts/generate_plots.py
 ```text
 fb-rl/
 ├── configs/                          # Hydra YAML configuration files
-│   ├── config.yaml                   # Root configuration
-│   ├── env/                          # Environment configs (antmaze_medium, etc.)
+│   ├── config.yaml                   # Root Hydra configuration
+│   ├── experiment.yaml               # Intention experiment configuration
+│   ├── train_translator.yaml         # Waypoint translator training configuration
+│   ├── env/                          # Environment configs (antmaze_medium, large, giant, teleport)
 │   └── planner/                      # Planner configs (buffer_graph, baseline, etc.)
 ├── fb-test/                          # Pretrained FB representations & weights
+├── outputs/                          # Training logs and model checkpoints
+│   └── checkpoints/                  # Best trained translator and distillation weights
 ├── report/                           # Scientific LaTeX report and figures
-│   ├── figures/                      # High-res vector PDF/PNG figures
-│   ├── main.tex                      # Primary publication LaTeX manuscript
-│   ├── main.pdf                      # Compiled PDF report
-│   └── references.bib                # BibTeX references
-├── results/                          # Benchmark logs, metrics, and plots
-│   ├── plots/                        # Generated 2D trajectory visualizations
-│   ├── summary_metrics.json          # Statistical aggregates with bootstrap CIs
-│   ├── summary_runs.csv              # Per-seed benchmark metrics
-│   └── summary_table.tex             # LaTeX benchmark table
-├── scripts/                          # Execution and benchmarking scripts
-│   ├── generate_plots.py             # Publication figure generation
-│   ├── run_architecture_search.py   # Hyperparameter tuning
-│   ├── run_benchmark.py              # Parallel multi-seed evaluation engine
-│   ├── train_and_benchmark_advanced.py # Advanced architecture training & eval
-│   ├── train_distillation.py         # Student policy distillation
-│   └── visualize_trajectories.py     # Trajectory and maze rendering engine
+├── results/                          # Benchmark logs, metrics, and organized rollout plots
+│   ├── benchmarks/                   # Multi-seed CSV & Markdown benchmark summaries
+│   └── plots/                        # Generated 2D trajectory visualizations
+├── scripts/                          # Executable training, evaluation, and plotting scripts
+│   ├── benchmark_translators.py      # Comprehensive 10-seed multi-method benchmark
+│   ├── experiment_intention.py       # Intention and waypoint execution experiments
+│   ├── experiment_lowlevel_control.py # Low-level control & straight-line maneuver benchmark
+│   ├── generate_all_method_rollouts_and_plots.py # Batch trajectory rollout generator
+│   ├── generate_plots.py             # Publication figure and Pareto generator
+│   ├── run_benchmark.py              # Parallel multi-process evaluation engine
+│   ├── run_training_pipeline_large.sh # End-to-end training & evaluation pipeline for Large
+│   ├── train_jax_distillation.py     # Differentiable JAX/Flax student policy distillation
+│   ├── train_waypoint_translators.py # Hydra Flax Single & Sequence Waypoint Attention Trainer
+│   └── visualize_trajectories.py     # Trajectory, comparison, and maze rendering engine
 ├── src/                              # Core library source code
 │   ├── agent_loader.py               # Pretrained checkpoint and dataset loader
 │   ├── evaluator.py                  # High-performance evaluation & rollout recorder
+│   ├── jax_distillation.py           # JAX/Flax student architectures & training steps
 │   ├── metrics.py                    # Bootstrap CI and statistical tests
 │   ├── models.py                     # Student neural architectures (ECA, SwiGLU)
-│   └── planners.py                   # Pure FB planners (Dijkstra, Bisection, Distilled)
+│   ├── planners.py                   # Unified hierarchy of Zero-Shot FB Planners
+│   └── waypoint_translators.py       # Sequence-aware attention translator architectures
 ├── tests/                            # Comprehensive unit and integration test suite
 ├── environment.yml                   # Conda environment definition
 └── README.md                         # Project documentation

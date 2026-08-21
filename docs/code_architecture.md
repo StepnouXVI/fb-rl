@@ -18,13 +18,21 @@ fb-rl/
 │   ├── agent_loader.py       # Pretrained FB checkpoint & environment deserializer
 │   ├── evaluator.py          # Deterministic zero-shot task evaluation engine
 │   ├── metrics.py            # Statistical analysis, bootstrap CI, LaTeX table export
+│   ├── jax_distillation.py   # JAX/Flax student architectures and loss functions
 │   ├── models.py             # PyTorch distilled student architectures
+│   ├── waypoint_translators.py # Sequence-aware attention translator models
 │   └── planners.py           # Unified hierarchy of Zero-Shot FB Planners
-├── scripts/                  # Executable CLI benchmarks and visualization
+├── scripts/                  # Executable CLI benchmarks, training, and visualization
+│   ├── benchmark_translators.py # Comprehensive 10-seed multi-method benchmark
 │   ├── run_benchmark.py      # Multi-process parallel evaluation orchestrator
+│   ├── train_jax_distillation.py # Differentiable JAX student policy distillation
+│   ├── train_waypoint_translators.py # Hydra Flax Waypoint Attention Translator trainer
+│   ├── generate_all_method_rollouts_and_plots.py # Batch trajectory rollout exporter
 │   ├── visualize_trajectories.py # High-resolution publication plotting suite
-│   ├── train_distillation.py # Distillation training pipeline
-│   └── generate_plots.py     # Batch plot generation utility
+│   ├── experiment_intention.py # Intention and waypoint execution experiments
+│   ├── experiment_lowlevel_control.py # Low-level control & maneuver benchmark
+│   ├── run_training_pipeline_large.sh # End-to-end training pipeline for Large maze
+│   └── generate_plots.py     # Batch plot and Pareto generation utility
 └── docs/                     # Technical specifications and benchmark reports
 ```
 
