@@ -102,6 +102,31 @@ TASK_COORDS = {
 }
 
 
+def sanitize_method_name(name):
+    """Normalizes method names to standard slug format: e.g. 'enhanced_sequence_attention'."""
+    if not name:
+        return "method"
+    s = str(name).strip()
+    # If contains known keywords, use canonical clean slugs
+    s_lower = s.lower()
+    if "enhanced" in s_lower and "sequence" in s_lower:
+        return "enhanced_sequence_attention"
+    elif "single_wp" in s_lower or "single wp" in s_lower:
+        return "single_wp_translator"
+    elif "distill" in s_lower:
+        return "distilled_jax_gated_attn"
+    elif "teacher" in s_lower or "buffer graph" in s_lower or "dijkstra" in s_lower:
+        return "dijkstra_teacher"
+    elif "baseline" in s_lower or "single-intention" in s_lower:
+        return "single_intention_baseline"
+    
+    import re
+    s = re.sub(r'^\d+\.\s*', '', s)
+    s = s.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('+', 'plus')
+    s = re.sub(r'[\s\-]+', '_', s)
+    return s.lower().strip('_')
+
+
 def normalize_maze_type(maze_type):
     """Converts environment names or aliases into a canonical maze_type string."""
     if maze_type is None:
@@ -801,55 +826,78 @@ def render_3panel_comparison(
     return out_file, outcome
 
 
-def export_all_comparisons(
+def export_all_methods_trajectories(
     df_traj,
     df_sg=None,
     df_lm=None,
-    maze_type="medium",
+    maze_type="large",
     unit_size=4.0,
     show_portals=True,
     show_portal_links=True,
-    output_dir="results/plots",
+    base_output_dir="results",
     seed_filter=None,
     task_filter=None,
 ):
     """
-    Iterates over all episodes in the trajectories dataset, renders 3-panel comparisons,
-    and automatically classifies each into success/ or failed/ subfolders under the maze category.
+    Renders individual trajectory plots for every method and classifies them into:
+    {base_output_dir}/{method_name}/{maze_type}/{failed,success}/
     """
+    from collections import defaultdict
     norm_type = normalize_maze_type(maze_type)
-    episodes_meta = df_traj[["seed", "task_id", "episode"]].drop_duplicates().sort_values(["seed", "task_id", "episode"])
+    grid = MAZE_LAYOUTS.get(norm_type, MAZE_LAYOUTS["medium"])
+    h, w = grid.shape
+    aspect = w / max(1, h)
+    fig_w = max(6.5, 6.5 * aspect)
+    fig_h = 6.5
 
-    if seed_filter is not None:
-        episodes_meta = episodes_meta[episodes_meta["seed"] == seed_filter]
-    if task_filter is not None:
-        episodes_meta = episodes_meta[episodes_meta["task_id"] == task_filter]
+    methods = df_traj["method"].unique()
+    counts = defaultdict(lambda: {"success": 0, "failed": 0})
 
-    total = len(episodes_meta)
-    print(f"Exporting {total} 3-panel comparisons organized into '{output_dir}/{norm_type}/{{success,failed}}/'...")
+    for m in methods:
+        clean_name = sanitize_method_name(m)
+        sub_df = df_traj[df_traj["method"] == m]
+        episodes_meta = sub_df[["seed", "task_id", "episode"]].drop_duplicates().sort_values(["seed", "task_id", "episode"])
+        if seed_filter is not None:
+            episodes_meta = episodes_meta[episodes_meta["seed"] == seed_filter]
+        if task_filter is not None:
+            episodes_meta = episodes_meta[episodes_meta["task_id"] == task_filter]
 
-    counts = {"success": 0, "failed": 0}
-    for _, row in episodes_meta.iterrows():
-        s = int(row["seed"])
-        t = int(row["task_id"])
-        ep = int(row["episode"])
-        out_file, outcome = render_3panel_comparison(
-            df_traj,
-            df_sg=df_sg,
-            df_lm=df_lm,
-            seed=s,
-            task_id=t,
-            episode=ep,
-            maze_type=norm_type,
-            unit_size=unit_size,
-            show_portals=show_portals,
-            show_portal_links=show_portal_links,
-            output_dir=output_dir,
-            organize_by_outcome=True,
-        )
-        counts[outcome] += 1
+        print(f"Exporting {len(episodes_meta)} trajectory plots for [{clean_name}] into '{base_output_dir}/{clean_name}/{norm_type}/'...")
 
-    print(f"Export completed: {counts['success']} SUCCESS, {counts['failed']} FAILED plots saved to {output_dir}/{norm_type}/")
+        for _, row in episodes_meta.iterrows():
+            s = int(row["seed"])
+            t = int(row["task_id"])
+            ep = int(row["episode"])
+
+            cur_traj = sub_df[(sub_df["seed"] == s) & (sub_df["task_id"] == t) & (sub_df["episode"] == ep)]
+            cur_sg = (
+                df_sg[(df_sg["method"] == m) & (df_sg["seed"] == s) & (df_sg["task_id"] == t) & (df_sg["episode"] == ep)]
+                if df_sg is not None
+                else None
+            )
+
+            fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=150)
+            is_b = "baseline" in clean_name
+            reached = plot_trajectory_panel(
+                ax,
+                cur_traj,
+                cur_sg,
+                title=f"{m} | Task {t} | Ep {ep} (Seed {s})",
+                is_baseline=is_b,
+                maze_type=norm_type,
+                unit_size=unit_size,
+                show_portals=show_portals,
+                show_portal_links=show_portal_links,
+            )
+            outcome = "success" if reached else "failed"
+            out_folder = os.path.join(base_output_dir, clean_name, norm_type, outcome)
+            os.makedirs(out_folder, exist_ok=True)
+            save_file = os.path.join(out_folder, f"{clean_name}_{norm_type}_seed{s}_task{t}_ep{ep}.png")
+            plt.tight_layout()
+            plt.savefig(save_file, bbox_inches="tight")
+            plt.close()
+            counts[clean_name][outcome] += 1
+
     return counts
 
 
