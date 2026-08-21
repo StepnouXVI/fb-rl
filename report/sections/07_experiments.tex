@@ -50,11 +50,12 @@
 \subsubsection{2. Рекордная скорость и устойчивость Distilled JAX (85.0\%, 0.56 мс)}
 Амортизированный \texttt{DistilledJAXPlanner} показывает **наименьшую дисперсию среди всех методов** ($\sigma = 3.5\%$) и ускоряет шаг до **0.56 мс**. Модель работает в $O(1)$ времени без хранения ориентиров графа в оперативной памяти во время инференса.
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
 \caption{\textbf{Исследование абляций компонентов} \texttt{EnhancedSequencePlanner}.}
 \label{tab:ablation}
+\resizebox{\columnwidth}{!}{
 \begin{tabular}{lc}
 \toprule
 \textbf{Конфигурация архитектуры} & \textbf{Success Rate (\%)} \\
@@ -66,4 +67,7 @@ $-$ Локально-глобальное окно & 83.4 $\pm$ 5.5 \\
 $-$ Вспомогательный локальный лосс ($\mathcal{L}_{\text{aux}}$) & 85.2 $\pm$ 5.1 \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
+
+\FloatBarrier

@@ -30,7 +30,8 @@
 \small
 \caption{\textbf{Сравнительный анализ архитектур дистилляции} на датасете демонстраций учителя Дейкстры (\texttt{ogbench-antmaze-medium-navigate-v0}).}
 \label{tab:distillation_comparison}
-\begin{tabularx}{\textwidth}{lcccccc}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lcccccc}
 \toprule
 \textbf{Архитектура студента} & \textbf{Параметры} & \textbf{Val CosSim $\uparrow$} & \textbf{Val ActMSE $\downarrow$} & \textbf{Success Rate (\%)} & \textbf{Латентность (мс/шаг)} & \textbf{Фреймворк} \\
 \midrule
@@ -41,7 +42,8 @@ Gated Cross-Attention (Base) & 535,427 & 0.708 & 0.0084 & 81.7\% & 0.68 ms & PyT
 \rowcolor{lightgraybg}
 \textbf{Distilled JAX GatedAttn (Ours)} & \textbf{535,427} & \textbf{0.880} & \textbf{0.0009} & \textbf{85.0 $\pm$ 3.5\%} & \textbf{0.56 ms} & \textbf{JAX / XLA} \\
 \bottomrule
-\end{tabularx}
+\end{tabular}
+}
 \end{table*}
 
 \subsection{Дифференцируемый 4-компонентный физический лосс}

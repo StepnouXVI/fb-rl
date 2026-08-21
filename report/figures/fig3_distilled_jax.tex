@@ -1,4 +1,7 @@
 \documentclass[tikz,border=12pt]{standalone}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{tikz}
 \usetikzlibrary{shapes,arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing,shadows}
@@ -47,9 +50,9 @@
     },
     pill/.style={
         rectangle,
-        rounded corners=9pt,
+        rounded corners=8pt,
         draw=#1!80!black,
-        fill=#1!12,
+        fill=#1!10,
         line width=0.8pt,
         align=center,
         inner sep=4pt
@@ -76,41 +79,41 @@
 % TITLE
 % ==============================================================================
 \node[anchor=west, font=\bfseries\normalsize, text=themeorange!95!black] at (-0.3, 8.4) 
-    {Distilled JAX GatedAttn Planner: $O(1)$ Amortized Neural Latent Policy ($0.52\,\text{ms}$)};
+    {Дистиллированный JAX-планировщик: Амортизированная нейросетевая политика $O(1)$ ($0.52\,\text{мс}$)};
 
 % Main Enclosing Canvas
 \draw[rounded corners=8pt, line width=0.9pt, draw=themeorange!40!gray, fill=themeorange!2] 
-    (-0.5, -5.8) rectangle (18.1, 8.0);
+    (-0.5, -5.6) rectangle (18.1, 8.0);
 
 % ==============================================================================
 % 1. INPUT LAYER
 % ==============================================================================
-\node[box=themeblue, minimum width=4.2cm, minimum height=1.3cm] (in_state) at (3.5, 6.7) 
-    {\textbf{Agent State} $s_t \in \mathbb{R}^{d_s}$\\\scriptsize Proprioceptive \& kinematic ($d_s=29$)};
+\node[box=themeblue, minimum width=4.4cm, minimum height=1.3cm] (in_state) at (3.5, 6.7) 
+    {\textbf{Состояние агента} $s_t \in \mathbb{R}^{d_s}$\\\scriptsize Кинематика и скорости ($d_s=29$)};
 
-\node[box=themepurple, minimum width=4.2cm, minimum height=1.3cm] (in_goal) at (14.0, 6.7) 
-    {\textbf{Goal Latent} $z_g = B(g) \in \mathbb{S}^{d-1}$\\\scriptsize Offline Backward Target ($d_z=128$)};
+\node[box=themepurple, minimum width=4.4cm, minimum height=1.3cm] (in_goal) at (14.0, 6.7) 
+    {\textbf{Латент цели} $z_g = B(g) \in \mathbb{S}^{d-1}$\\\scriptsize Офлайн-вектор цели ($d_z=128$)};
 
 % ==============================================================================
 % 2. DUAL FEATURE ENCODERS (STEP 1 & 2)
 % ==============================================================================
 % State Encoder (Step 1)
-\node[box=themeblue, minimum width=4.8cm, minimum height=2.6cm] (enc_s) at (3.5, 4.0) {};
-\node[badge=themeblue] (b1) at (1.4, 4.95) {1};
-\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=3pt of b1] {State Encoder MLP};
-\node[subbox=themeblue, font=\scriptsize, minimum width=4.2cm] at (3.5, 4.2) 
+\node[box=themeblue, minimum width=5.0cm, minimum height=2.5cm] (enc_s) at (3.5, 4.1) {};
+\node[badge=themeblue] (b1) at (1.3, 5.05) {1};
+\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=2pt of b1] {Энкодер состояния};
+\node[subbox=themeblue, font=\scriptsize, minimum width=4.4cm] at (3.5, 4.25) 
     {$3\times [\text{Dense}(256) \to \text{LN} \to \text{GELU}]$\\
     $h_s = \text{MLP}_{\theta_s}(s_t) \in \mathbb{R}^{256}$};
-\node[font=\tiny, text=themeblue!80!black] at (3.5, 3.1) {Captures local obstacle proximity \& velocities};
+\node[font=\tiny, text=themeblue!80!black] at (3.5, 3.15) {Локальное положение и препятствия};
 
 % Goal Encoder (Step 2)
-\node[box=themepurple, minimum width=4.8cm, minimum height=2.6cm] (enc_g) at (14.0, 4.0) {};
-\node[badge=themepurple] (b2) at (11.9, 4.95) {2};
-\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=3pt of b2] {Goal Encoder MLP};
-\node[subbox=themepurple, font=\scriptsize, minimum width=4.2cm] at (14.0, 4.2) 
+\node[box=themepurple, minimum width=5.0cm, minimum height=2.5cm] (enc_g) at (14.0, 4.1) {};
+\node[badge=themepurple] (b2) at (11.8, 5.05) {2};
+\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=2pt of b2] {Энкодер цели};
+\node[subbox=themepurple, font=\scriptsize, minimum width=4.4cm] at (14.0, 4.25) 
     {$3\times [\text{Dense}(256) \to \text{LN} \to \text{GELU}]$\\
     $h_g = \text{MLP}_{\theta_g}(z_g) \in \mathbb{R}^{256}$};
-\node[font=\tiny, text=themepurple!80!black] at (14.0, 3.1) {Extracts global topological navigation context};
+\node[font=\tiny, text=themepurple!80!black] at (14.0, 3.15) {Глобальный топологический контекст};
 
 \draw[carr=themeblue] (in_state) -- (enc_s);
 \draw[carr=themepurple] (in_goal) -- (enc_g);
@@ -118,14 +121,14 @@
 % ==============================================================================
 % 3. GATED FUSION / ATTENTION MODULATION (STEP 3)
 % ==============================================================================
-\node[box=themeorange, minimum width=9.0cm, minimum height=2.6cm] (gate_box) at (8.75, 1.2) {};
-\node[badge=themeorange] (b3) at (4.6, 2.15) {3};
-\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=3pt of b3] {Gated Attention Modulation Mechanism};
+\node[box=themeorange, minimum width=9.4cm, minimum height=2.5cm] (gate_box) at (8.75, 1.4) {};
+\node[badge=themeorange] (b3) at (4.3, 2.35) {3};
+\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=2pt of b3] {Механизм стробированного внимания (Gated Attention)};
 
-\node[subbox=themeorange, font=\scriptsize, minimum width=8.4cm] at (8.75, 1.35) 
-    {\textbf{Modulation Signal}: $\text{gate}_g = \sigma(\text{Dense}(h_g)) \in [0, 1]^{256}$\\
-    \textbf{State-Goal Fusion}: $h_{\text{fused}} = h_s \odot \text{gate}_g \in \mathbb{R}^{256}$};
-\node[font=\tiny, text=themeorange!90!black] at (8.75, 0.25) {Dynamic channel-wise gating: Goal filters state coordinates for corridor turns};
+\node[subbox=themeorange, font=\scriptsize, minimum width=8.8cm] at (8.75, 1.55) 
+    {\textbf{Стробирующий вектор}: $\text{gate}_g = \sigma(\text{Dense}(h_g)) \in [0, 1]^{256}$\\
+    \textbf{Слияние признаков}: $h_{\text{fused}} = h_s \odot \text{gate}_g \in \mathbb{R}^{256}$};
+\node[font=\tiny, text=themeorange!90!black] at (8.75, 0.45) {Поканальная модуляция состояния целью для корректного прохождения поворотов};
 
 \draw[carr=themeblue] (enc_s.south) |- (gate_box.west);
 \draw[carr=themepurple] (enc_g.south) |- (gate_box.east);
@@ -133,13 +136,13 @@
 % ==============================================================================
 % 4. DEEP REFINEMENT & SPHERE PROJECTION (STEP 4)
 % ==============================================================================
-\node[box=themeteal, minimum width=6.8cm, minimum height=2.2cm] (sphere_card) at (8.75, -1.8) {};
-\node[badge=themeteal] (b4) at (5.6, -1.05) {4};
-\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=3pt of b4] {Refinement \& Sphere Projection Head};
+\node[box=themeteal, minimum width=7.2cm, minimum height=2.2cm] (sphere_card) at (8.75, -1.6) {};
+\node[badge=themeteal] (b4) at (5.4, -0.8) {4};
+\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=2pt of b4] {Уточнение и проекция на сферу $\mathbb{S}^{d-1}$};
 
-\node[subbox=themeteal, font=\scriptsize, minimum width=6.2cm] at (8.75, -1.9) 
+\node[subbox=themeteal, font=\scriptsize, minimum width=6.6cm] at (8.75, -1.75) 
     {$\text{Dense}(256) \to \text{LN} \to \text{GELU} \to \text{Dense}(128) \to \hat{z}$\\
-    \textbf{Unit Sphere Output}: $z_{\text{cmd}} = \sqrt{d} \cdot \frac{\hat{z}}{\|\hat{z}\|_2 + \epsilon} \in \mathbb{S}^{d-1}$};
+    \textbf{Командный латент}: $z_{\text{cmd}} = \sqrt{d} \cdot \frac{\hat{z}}{\|\hat{z}\|_2 + \epsilon} \in \mathbb{S}^{d-1}$};
 
 \draw[carr=themeorange] (gate_box.south) -- (sphere_card.north);
 
@@ -147,41 +150,40 @@
 % 5. FROZEN EXECUTION & PHYSICS REGULARIZATION (STEP 5)
 % ==============================================================================
 % Low-Level Policy
-\node[box=themegray, minimum width=4.0cm, minimum height=1.6cm] (frozen_pi) at (2.4, -1.8) 
-    {\textbf{Frozen Actor} $\pi^\ell$\\\scriptsize $\pi^\ell(a_t \mid s_t, z_{\text{cmd}})$\\\scriptsize Frozen Low-Level Policy};
-\node[badge=themegray] at (0.7, -1.3) {5};
+\node[box=themegray, minimum width=4.3cm, minimum height=1.6cm] (frozen_pi) at (2.4, -1.6) 
+    {\textbf{5. Замороженный актор} $\pi^\ell$\\\scriptsize $\pi^\ell(a_t \mid s_t, z_{\text{cmd}})$\\\scriptsize Низкоуровневая политика};
 
 % Forward Representation
-\node[box=themecyan, minimum width=4.0cm, minimum height=1.6cm] (frozen_f) at (15.1, -1.8) 
-    {\textbf{Frozen Forward} $F$\\\scriptsize $F(s_t, z_{\text{cmd}}) \in \mathbb{R}^d$\\\scriptsize Reachability Evaluator};
+\node[box=themecyan, minimum width=4.3cm, minimum height=1.6cm] (frozen_f) at (15.1, -1.6) 
+    {\textbf{Прямая модель} $F$\\\scriptsize $F(s_t, z_{\text{cmd}}) \in \mathbb{R}^d$\\\scriptsize Оценка достижимости};
 
 \draw[carr=themeteal] (sphere_card.west) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (frozen_pi.east);
 \draw[carr=themeteal] (sphere_card.east) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (frozen_f.west);
 
 % Backprop Gradient Flow Indication
-\draw[darr=themered, line width=1.1pt] (frozen_pi.north) -- ++(0, 0.7) -| ([xshift=-25pt]sphere_card.north);
-\draw[darr=themered, line width=1.1pt] (frozen_f.north) -- ++(0, 0.7) -| ([xshift=25pt]sphere_card.north);
-\node[font=\scriptsize\bfseries, text=themered, fill=white, inner sep=2pt, rounded corners=3pt] at (8.75, -0.4) 
-    {$\nabla_\theta$ Backpropagation through Frozen Networks};
+\draw[darr=themered, line width=1.1pt] (frozen_pi.north) -- ++(0, 0.6) -| ([xshift=-25pt]sphere_card.north);
+\draw[darr=themered, line width=1.1pt] (frozen_f.north) -- ++(0, 0.6) -| ([xshift=25pt]sphere_card.north);
+\node[font=\scriptsize\bfseries, text=themered, fill=white, inner sep=2pt, rounded corners=3pt] at (8.75, -0.2) 
+    {$\nabla_\theta$ Градиенты функций потерь через замороженные сети};
 
 
 % ==============================================================================
 % BOTTOM 4-COMPONENT LOSS PILLS
 % ==============================================================================
-\node[pill=themeblue, font=\scriptsize, minimum width=4.1cm] (p_bc) at (1.8, -4.75) 
-    {\textbf{1. Behavioral Cloning $\mathcal{L}_{\text{BC}}$}\\
-    $\lambda_{\text{cos}}(1 - \cos(\hat{z}, z^*)) + \lambda_{\text{mse}}\|\hat{z} - z^*\|^2$};
+\node[pill=themeblue, font=\scriptsize, minimum width=4.1cm] (p_bc) at (1.8, -4.6) 
+    {\textbf{1. Клонирование $\mathcal{L}_{\text{BC}}$}\\
+    $\lambda_{\text{cos}}(1 - \cos(\hat{z}, z^*)) + \lambda_{\text{mse}}\|\Delta z\|^2$};
 
-\node[pill=themepurple, font=\scriptsize, minimum width=4.1cm] (p_act) at (6.4, -4.75) 
-    {\textbf{2. Action Alignment $\mathcal{L}_{\text{Act}}$}\\
+\node[pill=themepurple, font=\scriptsize, minimum width=4.1cm] (p_act) at (6.4, -4.6) 
+    {\textbf{2. Действия $\mathcal{L}_{\text{Act}}$}\\
     $\lambda_a \|\pi^\ell(s_t, \hat{z}) - a^*\|_2^2$};
 
-\node[pill=themeteal, font=\scriptsize, minimum width=4.1cm] (p_reach) at (11.0, -4.75) 
-    {\textbf{3. Reachability $\mathcal{L}_{\text{Reach}}$}\\
+\node[pill=themeteal, font=\scriptsize, minimum width=4.1cm] (p_reach) at (11.0, -4.6) 
+    {\textbf{3. Достижимость $\mathcal{L}_{\text{Reach}}$}\\
     $-\lambda_r (F(s_t, \hat{z})^\top \hat{z})$};
 
-\node[pill=themeamber, font=\scriptsize, minimum width=4.1cm] (p_goal) at (15.6, -4.75) 
-    {\textbf{4. Goal Alignment $\mathcal{L}_{\text{Goal}}$}\\
+\node[pill=themeamber, font=\scriptsize, minimum width=4.1cm] (p_goal) at (15.6, -4.6) 
+    {\textbf{4. Вектор цели $\mathcal{L}_{\text{Goal}}$}\\
     $-\lambda_g \frac{\hat{z}^\top B(g)}{\|\hat{z}\| \|B(g)\|}$};
 
 \end{tikzpicture}

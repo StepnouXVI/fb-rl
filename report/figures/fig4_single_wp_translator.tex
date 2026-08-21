@@ -1,4 +1,7 @@
 \documentclass[tikz,border=12pt]{standalone}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{tikz}
 \usetikzlibrary{shapes,arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing,shadows}
@@ -47,9 +50,9 @@
     },
     pill/.style={
         rectangle,
-        rounded corners=9pt,
+        rounded corners=8pt,
         draw=#1!80!black,
-        fill=#1!12,
+        fill=#1!10,
         line width=0.8pt,
         align=center,
         inner sep=4pt
@@ -76,39 +79,39 @@
 % TITLE
 % ==============================================================================
 \node[anchor=west, font=\bfseries\normalsize, text=themeblue!95!black] at (-0.3, 8.4) 
-    {FlaxSingleWaypointTranslator: Gated Residual Architecture ($s_t, B(w_1) \to z_{\text{cmd}}$)};
+    {Транслятор одного вейпоинта (SingleWaypointTranslator): Gated Residual Архитектура ($s_t, B(w_1) \to z_{\text{cmd}}$)};
 
 % Main Enclosing Canvas
 \draw[rounded corners=8pt, line width=0.9pt, draw=themeblue!40!gray, fill=themeblue!2] 
-    (-0.5, -5.8) rectangle (18.1, 8.0);
+    (-0.5, -5.7) rectangle (18.1, 8.0);
 
 % ==============================================================================
 % 1. INPUT LAYER
 % ==============================================================================
-\node[box=themeblue, minimum width=4.5cm, minimum height=1.3cm] (in_state) at (3.5, 6.7) 
-    {\textbf{Current State} $s_t \in \mathbb{R}^{d_s}$\\\scriptsize Continuous Agent State ($d_s=29$)};
+\node[box=themeblue, minimum width=4.6cm, minimum height=1.2cm] (in_state) at (3.5, 6.8) 
+    {\textbf{Текущее состояние} $s_t \in \mathbb{R}^{d_s}$\\\scriptsize Состояние агента ($d_s=29$)};
 
-\node[box=themecyan, minimum width=4.5cm, minimum height=1.3cm] (in_wp) at (14.0, 6.7) 
-    {\textbf{Lookahead Waypoint} $B(w_1) \in \mathbb{S}^{d-1}$\\\scriptsize Immediate Dijkstra Target ($d_z=128$)};
+\node[box=themecyan, minimum width=4.6cm, minimum height=1.2cm] (in_wp) at (14.0, 6.8) 
+    {\textbf{Вейпоинт горизонта} $B(w_1) \in \mathbb{S}^{d-1}$\\\scriptsize Целевой латент Дейкстры ($d_z=128$)};
 
 % ==============================================================================
 % 2. DUAL FEATURE EXTRACTION ENCODERS (STEP 1)
 % ==============================================================================
 % State Branch
-\node[box=themeblue, minimum width=5.2cm, minimum height=2.4cm] (enc_s) at (3.5, 4.2) {};
-\node[badge=themeblue] (b1_s) at (1.2, 5.05) {1a};
-\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=3pt of b1_s] {State Feature Extraction};
-\node[subbox=themeblue, font=\scriptsize, minimum width=4.6cm] at (3.5, 4.15) 
+\node[box=themeblue, minimum width=5.2cm, minimum height=2.3cm] (enc_s) at (3.5, 4.4) {};
+\node[badge=themeblue] (b1_s) at (1.2, 5.25) {1a};
+\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=2pt of b1_s] {Признаки состояния};
+\node[subbox=themeblue, font=\scriptsize, minimum width=4.6cm] at (3.5, 4.35) 
     {$\text{Dense}(256) \to \text{LN} \to \text{GELU} \to \text{Dense}(256) \to \text{LN}$\\
-    $h_s \in \mathbb{R}^{256}$ (Kinematic \& Spatial)};
+    $h_s \in \mathbb{R}^{256}$ (динамика и положение)};
 
 % Waypoint Branch
-\node[box=themecyan, minimum width=5.2cm, minimum height=2.4cm] (enc_w) at (14.0, 4.2) {};
-\node[badge=themecyan] (b1_w) at (11.7, 5.05) {1b};
-\node[font=\bfseries\footnotesize, text=themecyan!90!black, right=3pt of b1_w] {Waypoint Feature Extraction};
-\node[subbox=themecyan, font=\scriptsize, minimum width=4.6cm] at (14.0, 4.15) 
+\node[box=themecyan, minimum width=5.2cm, minimum height=2.3cm] (enc_w) at (14.0, 4.4) {};
+\node[badge=themecyan] (b1_w) at (11.7, 5.25) {1b};
+\node[font=\bfseries\footnotesize, text=themecyan!90!black, right=2pt of b1_w] {Признаки вейпоинта};
+\node[subbox=themecyan, font=\scriptsize, minimum width=4.6cm] at (14.0, 4.35) 
     {$\text{Dense}(256) \to \text{LN} \to \text{GELU} \to \text{Dense}(256)$\\
-    $h_w \in \mathbb{R}^{256}$ (Target Corridor)};
+    $h_w \in \mathbb{R}^{256}$ (направление коридора)};
 
 \draw[carr=themeblue] (in_state) -- (enc_s);
 \draw[carr=themecyan] (in_wp) -- (enc_w);
@@ -116,14 +119,14 @@
 % ==============================================================================
 % 3. GATING MECHANISM & FUSION (STEP 2)
 % ==============================================================================
-\node[box=themeteal, minimum width=9.2cm, minimum height=2.7cm] (gate_box) at (8.75, 1.4) {};
-\node[badge=themeteal] (b2) at (4.4, 2.35) {2};
-\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=3pt of b2] {State-Adaptive Gating Mechanism};
+\node[box=themeteal, minimum width=9.6cm, minimum height=2.4cm] (gate_box) at (8.75, 1.8) {};
+\node[badge=themeteal] (b2) at (4.3, 2.7) {2};
+\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=2pt of b2] {Адаптивное стробирование (State-Adaptive Gating)};
 
-\node[subbox=themeteal, font=\scriptsize, minimum width=8.6cm] at (8.75, 1.6) 
-    {\textbf{Concatenation}: $[h_s, h_w] \in \mathbb{R}^{512} \implies \gamma = \sigma(\text{Dense}( [h_s, h_w] )) \in (0, 1)^{256}$\\
-    \textbf{Convex Gated Combination}: $h_{\text{fused}} = \gamma \odot h_w + (1 - \gamma) \odot h_s \in \mathbb{R}^{256}$};
-\node[font=\tiny, text=themeteal!90!black] at (8.75, 0.35) {Self-modulates waypoint pull based on current obstacle proximity and momentum};
+\node[subbox=themeteal, font=\scriptsize, minimum width=9.0cm] at (8.75, 1.95) 
+    {\textbf{Конкатенация}: $[h_s, h_w] \implies \gamma = \sigma(\text{Dense}( [h_s, h_w] )) \in (0, 1)^{256}$\\
+    \textbf{Выпуклая комбинация}: $h_{\text{fused}} = \gamma \odot h_w + (1 - \gamma) \odot h_s \in \mathbb{R}^{256}$};
+\node[font=\tiny, text=themeteal!90!black] at (8.75, 0.85) {Адаптивно балансирует притяжение к вейпоинту и огибание препятствий};
 
 \draw[carr=themeblue] (enc_s.south) |- (gate_box.west);
 \draw[carr=themecyan] (enc_w.south) |- (gate_box.east);
@@ -131,20 +134,20 @@
 % ==============================================================================
 % 4. DEEP RESIDUAL REFINEMENT BLOCKS (STEP 3)
 % ==============================================================================
-\node[box=themepurple, minimum width=9.2cm, minimum height=2.6cm] (res_box) at (8.75, -1.6) {};
-\node[badge=themepurple] (b3) at (4.4, -0.65) {3};
-\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=3pt of b3] {Deep Residual Refinement Blocks ($N_{\text{layers}}=3$)};
+\node[box=themepurple, minimum width=9.6cm, minimum height=2.5cm] (res_box) at (8.75, -1.0) {};
+\node[badge=themepurple] (b3) at (4.3, 0.0) {3};
+\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=2pt of b3] {Остаточные блоки (ResBlocks, $N_{\text{layers}}=3$)};
 
-\node[subbox=themepurple, font=\scriptsize, minimum width=8.6cm] at (8.75, -1.35) 
+\node[subbox=themepurple, font=\scriptsize, minimum width=9.0cm] at (8.75, -0.7) 
     {$h^{(l+1)} = h^{(l)} + \text{GELU}\left(\text{LN}\left(\text{Dense}_{256}\left(h^{(l)}\right)\right)\right), \quad l \in \{1, \dots, N-1\}$};
 
 % Skip Connection Illustration Inside ResBox
-\begin{scope}[shift={(6.2, -2.25)}]
+\begin{scope}[shift={(6.3, -1.65)}]
     \draw[carr=themepurple, line width=1.0pt] (0, 0) -- (1.3, 0);
-    \draw[rounded corners=3pt, carr=themepurple, line width=1.0pt] (0, 0) -- ++(0, 0.32) -- ++(3.2, 0) -- ++(0, -0.32);
-    \node[circle, draw=themepurple!80!black, fill=themepurple!20, inner sep=1pt, font=\tiny\bfseries] at (3.2, 0) {$+$};
-    \node[subbox=themepurple, font=\tiny, inner sep=2pt] at (1.6, 0) {Dense + LN + GELU};
-    \draw[carr=themepurple, line width=1.0pt] (3.4, 0) -- (4.8, 0);
+    \draw[rounded corners=3pt, carr=themepurple, line width=1.0pt] (0, 0) -- ++(0, 0.3) -- ++(3.1, 0) -- ++(0, -0.3);
+    \node[circle, draw=themepurple!80!black, fill=themepurple!20, inner sep=1pt, font=\tiny\bfseries] at (3.1, 0) {$+$};
+    \node[subbox=themepurple, font=\tiny, inner sep=2pt] at (1.5, 0) {Dense + LN + GELU};
+    \draw[carr=themepurple, line width=1.0pt] (3.3, 0) -- (4.7, 0);
 \end{scope}
 
 \draw[carr=themeteal] (gate_box.south) -- (res_box.north);
@@ -153,35 +156,35 @@
 % 5. SPHERICAL PROJECTION & LOW-LEVEL POLICY (STEPS 4 & 5)
 % ==============================================================================
 % Spherical Head
-\node[box=themeorange, minimum width=6.2cm, minimum height=1.6cm] (sphere_head) at (5.0, -3.8) {};
-\node[badge=themeorange] (b4) at (2.2, -3.35) {4};
-\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=3pt of b4] {Spherical Head $\mathbb{S}^{d-1}$};
-\node[font=\scriptsize, align=center] at (5.0, -3.95) 
+\node[box=themeorange, minimum width=6.2cm, minimum height=1.6cm] (sphere_head) at (4.8, -3.5) {};
+\node[badge=themeorange] (b4) at (2.0, -3.05) {4};
+\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=2pt of b4] {Проекция на сферу $\mathbb{S}^{d-1}$};
+\node[font=\scriptsize, align=center] at (4.8, -3.65) 
     {$\text{Dense}(128) \to \hat{z}$\\$z_{\text{cmd}} = \sqrt{d} \cdot \frac{\hat{z}}{\|\hat{z}\|_2 + 10^{-8}} \in \mathbb{S}^{d-1}$};
 
 % Low-Level Policy Execution
-\node[box=themegreen, minimum width=5.6cm, minimum height=1.6cm] (low_policy) at (13.5, -3.8) {};
-\node[badge=themegreen] (b5) at (11.0, -3.35) {5};
-\node[font=\bfseries\footnotesize, text=themegreen!90!black, right=3pt of b5] {Policy Execution $\pi^\ell$};
-\node[font=\scriptsize, align=center] at (13.5, -3.95) 
-    {\textbf{Action Output}: $a_t = \operatorname{mode}\pi^\ell(s_t, z_{\text{cmd}})$\\
-    $\mathcal{A} \in [-1, 1]^8$ (Ant Joint Torques)};
+\node[box=themegreen, minimum width=6.0cm, minimum height=1.6cm] (low_policy) at (13.3, -3.5) {};
+\node[badge=themegreen] (b5) at (10.6, -3.05) {5};
+\node[font=\bfseries\footnotesize, text=themegreen!90!black, right=2pt of b5] {Исполнение политикой $\pi^\ell$};
+\node[font=\scriptsize, align=center] at (13.3, -3.65) 
+    {Действие $a_t = \operatorname{mode}\pi^\ell(s_t, z_{\text{cmd}})$\\
+    $\mathcal{A} \in [-1, 1]^8$ (моменты сочленений Ant)};
 
-\draw[carr=themepurple] (res_box.south) -| (sphere_head.north);
+\draw[carr=themepurple] (res_box.south) -- ++(0, -0.45) -| (sphere_head.north);
 \draw[carr=themeorange] (sphere_head.east) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (low_policy.west);
 
 
 % ==============================================================================
 % BOTTOM SUMMARY PILLS
 % ==============================================================================
-\node[pill=themeblue, font=\scriptsize, minimum width=4.9cm] at (2.3, -5.1) 
-    {\textbf{Direct $s_t \to w_1$ Coupling}: $O(1)$ fast};
+\node[pill=themeblue, font=\scriptsize, minimum width=5.2cm] at (2.5, -5.0) 
+    {\textbf{Связка $s_t \to w_1$}: Быстрый инференс $O(1)$};
 
-\node[pill=themeteal, font=\scriptsize, minimum width=4.9cm] at (8.75, -5.1) 
-    {\textbf{Adaptive Gate $\gamma$}: Smooth transition};
+\node[pill=themeteal, font=\scriptsize, minimum width=5.2cm] at (8.75, -5.0) 
+    {\textbf{Адаптивный гейт $\gamma$}: Плавный обход стен};
 
-\node[pill=themeorange, font=\scriptsize, minimum width=4.9cm] at (15.2, -5.1) 
-    {\textbf{Radius Preservation}: $\|z_{\text{cmd}}\|_2 = \sqrt{128}$};
+\node[pill=themeorange, font=\scriptsize, minimum width=5.2cm] at (15.0, -5.0) 
+    {\textbf{Сохранение радиуса}: $\|z_{\text{cmd}}\|_2 = \sqrt{128}$};
 
 \end{tikzpicture}
 \end{document}

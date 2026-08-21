@@ -1,4 +1,7 @@
 \documentclass[tikz,border=12pt]{standalone}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{tikz}
 \usetikzlibrary{shapes,arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing,shadows}
@@ -47,9 +50,9 @@
     },
     pill/.style={
         rectangle,
-        rounded corners=9pt,
+        rounded corners=8pt,
         draw=#1!80!black,
-        fill=#1!12,
+        fill=#1!10,
         line width=0.8pt,
         align=center,
         inner sep=4pt
@@ -75,63 +78,63 @@
 % ==============================================================================
 % TITLE
 % ==============================================================================
-\node[anchor=west, font=\bfseries\normalsize, text=themepurple!95!black] at (-0.3, 10.2) 
-    {EnhancedSequenceWaypointAttentionTranslator: Geometry-Injected ALiBi Cross-Attention};
+\node[anchor=west, font=\bfseries\normalsize, text=themepurple!95!black] at (-0.3, 10.3) 
+    {Sequence Transformer (EnhancedSequenceTranslator): Внимание по траектории и ALiBi Cross-Attention};
 
 % Main Enclosing Canvas
 \draw[rounded corners=8pt, line width=0.9pt, draw=themepurple!40!gray, fill=themepurple!2] 
-    (-0.5, -6.6) rectangle (18.1, 9.8);
+    (-0.5, -6.4) rectangle (18.1, 9.9);
 
 % ==============================================================================
 % 1. INPUT WAYPOINT SEQUENCE & GEOMETRY INJECTION (STEP 1)
 % ==============================================================================
 % Input Tokens
-\node[subbox=themecyan, minimum width=2.0cm] (w1) at (2.2, 8.55) 
-    {\textbf{Token} $w_1$\\\scriptsize $B(w_1) \in \mathbb{S}^{d-1}$\\\tiny \textbf{Anchor 1}};
+\node[subbox=themecyan, minimum width=2.1cm] (w1) at (2.2, 8.65) 
+    {\textbf{Токен} $w_1$\\\scriptsize $B(w_1) \in \mathbb{S}^{d-1}$};
 
-\node[subbox=themecyan, minimum width=2.0cm] (w2) at (4.7, 8.55) 
-    {\textbf{Token} $w_2$\\\scriptsize $B(w_2) \in \mathbb{S}^{d-1}$};
+\node[subbox=themecyan, minimum width=2.1cm] (w2) at (4.8, 8.65) 
+    {\textbf{Токен} $w_2$\\\scriptsize $B(w_2) \in \mathbb{S}^{d-1}$};
 
-\node[font=\bfseries\normalsize, text=themecyan!90!black] at (6.6, 8.55) {$\dots$};
+\node[font=\bfseries\normalsize, text=themecyan!90!black] at (6.8, 8.65) {$\dots$};
 
-\node[subbox=themecyan, minimum width=2.0cm] (wk) at (8.5, 8.55) 
-    {\textbf{Token} $w_K$\\\scriptsize $B(w_K) \in \mathbb{S}^{d-1}$};
+\node[subbox=themecyan, minimum width=2.1cm] (wk) at (8.8, 8.65) 
+    {\textbf{Токен} $w_K$\\\scriptsize $B(w_K) \in \mathbb{S}^{d-1}$};
 
-\node[subbox=themered, minimum width=2.2cm] (wg) at (11.4, 8.55) 
-    {\textbf{Goal} $g_{\text{term}}$\\\scriptsize $B(g) \in \mathbb{S}^{d-1}$\\\tiny \textbf{Terminal Anchor}};
+\node[subbox=themered, minimum width=2.2cm] (wg) at (11.6, 8.65) 
+    {\textbf{Цель} $g$\\\scriptsize $B(g) \in \mathbb{S}^{d-1}$};
 
 % Step 1 Card: Geometric Encodings
-\node[box=themeteal, minimum width=13.0cm, minimum height=1.6cm] (enc_geom) at (6.8, 6.7) {};
-\node[badge=themeteal] (b1) at (0.7, 7.2) {1};
-\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=3pt of b1] 
-    {Geometric Feature Injection: $E_k = \text{Linear}(B(w_k)) + P_k + \text{Dense}(\cos \theta_k)$};
-\node[font=\scriptsize, align=center] at (6.8, 6.4) 
-    {Learned Positional Encoding $P_k \in \mathbb{R}^{384} \quad \oplus \quad$ Curvature / Turn Angles $\cos \theta_k = \frac{v_{k-1}^\top v_k}{\|v_{k-1}\| \|v_k\|} \in [-1, 1]$};
+\node[box=themeteal, minimum width=13.0cm, minimum height=1.6cm] (enc_geom) at (6.9, 6.75) {};
+\node[badge=themeteal] (b1) at (0.8, 7.3) {1};
+\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=2pt of b1] 
+    {Встраивание геометрии: $E_k = \text{Linear}(B(w_k)) + P_k + \text{Dense}(\cos \theta_k)$};
+\node[font=\scriptsize, align=center] at (6.9, 6.45) 
+    {Позиционное кодирование $P_k \in \mathbb{R}^{384} \quad \oplus \quad$ Углы кривизны $\cos \theta_k = \frac{v_{k-1}^\top v_k}{\|v_{k-1}\| \|v_k\|} \in [-1, 1]$};
 
-\draw[carr=themecyan] (w1) -- (2.2, 7.5);
-\draw[carr=themecyan] (w2) -- (4.7, 7.5);
-\draw[carr=themecyan] (wk) -- (8.5, 7.5);
-\draw[carr=themered] (wg) -- (11.4, 7.5);
+\draw[carr=themecyan] (w1) -- (2.2, 7.55);
+\draw[carr=themecyan] (w2) -- (4.8, 7.55);
+\draw[carr=themecyan] (wk) -- (8.8, 7.55);
+\draw[carr=themered] (wg) -- (11.6, 7.55);
 
 % Step 2: Waypoint Dropout & Local-Global Window Mask
-\node[box=themepurple, minimum width=4.0cm, minimum height=3.4cm] (mask_card) at (15.5, 7.2) {};
-\node[badge=themepurple] (b2) at (13.7, 8.55) {2};
-\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=2pt of b2] {Dropout \& Mask};
-\node[subbox=themepurple, font=\tiny, minimum width=3.6cm] at (15.5, 7.7) 
-    {\textbf{Waypoint Dropout} ($p=0.2$)\\Preserves Anchors $w_1, g$};
-\node[subbox=themepurple, font=\tiny, minimum width=3.6cm] at (15.5, 6.4) 
-    {\textbf{Local-Global Window}\\Local ($k < 6$) $\cup$ Terminal $g$};
+\node[box=themepurple, minimum width=4.0cm, minimum height=3.3cm] (mask_card) at (15.5, 7.3) {};
+\node[badge=themepurple] (b2) at (13.8, 8.65) {2};
+\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=2pt of b2] {Маскирование};
+\node[subbox=themepurple, font=\scriptsize, minimum width=3.6cm] at (15.5, 7.75) 
+    {\textbf{Waypoint Dropout} ($p=0.2$)\\\scriptsize Фиксация якорей $w_1, g$};
+\node[subbox=themepurple, font=\scriptsize, minimum width=3.6cm] at (15.5, 6.45) 
+    {\textbf{Окно контекста}\\\scriptsize Окно ($k < 6$) $\cup$ Цель $g$};
 
 % ==============================================================================
 % 2. MULTI-HEAD WAYPOINT SELF-ATTENTION (STEP 3)
 % ==============================================================================
-\node[box=themepurple, minimum width=13.0cm, minimum height=2.2cm] (sa_card) at (6.8, 4.2) {};
-\node[badge=themepurple] (b3) at (0.7, 4.95) {3};
-\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=3pt of b3] 
-    {Multi-Head Waypoint Self-Attention ($N_{\text{layers}}=3, \; H=6, \; d_{\text{hid}}=384$)};
-\node[subbox=themepurple, font=\scriptsize, minimum width=12.2cm] at (6.8, 4.0) 
-    {$H_w^{(l+1)} = \text{LN}\left(H_w^{(l)} + \text{MHSA}\left(H_w^{(l)}, \text{mask}\right)\right), \quad H_w \leftarrow \text{LN}\left(H_w + \text{MLP}_{\text{GELU}}(H_w)\right)$\\
-    \scriptsize Bidirectional context modeling captures multi-turn corridor topologies \& geometric choke-points};
+\node[box=themepurple, minimum width=13.0cm, minimum height=2.1cm] (sa_card) at (6.9, 4.3) {};
+\node[badge=themepurple] (b3) at (0.8, 5.05) {3};
+\node[font=\bfseries\footnotesize, text=themepurple!90!black, right=2pt of b3] 
+    {Self-Attention по цепочке вейпоинтов ($N_{\text{layers}}=3, \; H=6, \; d_{\text{hid}}=384$)};
+\node[subbox=themepurple, font=\scriptsize, minimum width=12.4cm] at (6.9, 4.05) 
+    {$H_w = \text{TransformerEncoder}([E_1, \dots, E_K, E_g], \; \text{mask})$\\
+    \scriptsize Двунаправленное моделирование контекста коридоров и геометрии поворотов};
 
 \draw[carr=themeteal] (enc_geom) -- (sa_card);
 \draw[darr=themepurple] (mask_card.west) -- (sa_card.east);
@@ -140,27 +143,26 @@
 % 3. STATE QUERY & ALIBI CROSS-ATTENTION (STEPS 4 & 5)
 % ==============================================================================
 % State Query Encoder (Step 4)
-\node[box=themeblue, minimum width=4.3cm, minimum height=2.8cm] (q_card) at (2.3, 1.0) {};
-\node[badge=themeblue] (b4) at (0.4, 2.05) {4};
-\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=3pt of b4] {State Query Encoder};
-\node[subbox=themeblue, font=\scriptsize, minimum width=3.7cm] at (2.3, 1.25) 
-    {\textbf{Input}: State $s_t \in \mathbb{R}^{29}$\\
+\node[box=themeblue, minimum width=4.5cm, minimum height=2.6cm] (q_card) at (2.4, 1.1) {};
+\node[badge=themeblue] (b4) at (0.5, 2.15) {4};
+\node[font=\bfseries\footnotesize, text=themeblue!90!black, right=2pt of b4] {Запрос состояния};
+\node[subbox=themeblue, font=\scriptsize, minimum width=3.9cm] at (2.4, 1.25) 
+    {\textbf{Состояние}: $s_t \in \mathbb{R}^{29}$\\
     $\text{Dense}(384) \to \text{LN} \to \text{GELU}$\\
-    $\to \text{Dense}(384) \to Q_s \in \mathbb{R}^{1 \times 384}$};
-\node[font=\tiny, text=themeblue!80!black] at (2.3, 0.0) {Dynamic query based on state};
+    $\to \text{Dense}(384) \to Q_s \in \mathbb{R}^{384}$};
+\node[font=\tiny, text=themeblue!80!black] at (2.4, 0.1) {Динамический запрос состояния};
 
 % ALiBi Distance-Decay Cross-Attention (Step 5)
-\node[box=themeorange, minimum width=10.4cm, minimum height=2.8cm] (cross_card) at (12.4, 1.0) {};
-\node[badge=themeorange] (b5) at (7.5, 2.05) {5};
-\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=3pt of b5] 
-    {ALiBi Distance-Decay Cross-Attention ($Q_s \to H_w$)};
+\node[box=themeorange, minimum width=10.4cm, minimum height=2.6cm] (cross_card) at (12.4, 1.1) {};
+\node[badge=themeorange] (b5) at (7.5, 2.15) {5};
+\node[font=\bfseries\footnotesize, text=themeorange!90!black, right=2pt of b5] 
+    {Cross-Attention со штрафом ALiBi ($Q_s \to H_w$)};
 
-\node[subbox=themeorange, font=\scriptsize, minimum width=9.8cm] at (12.4, 1.3) 
-    {\textbf{Logits with ALiBi Penalty}: $\text{AttnLogits}_{h,k} = \frac{Q_s K_k^\top}{\sqrt{d_k}} - \lambda \cdot m_h \cdot k$\\
-    \scriptsize Decay slope $m_h = 2^{-4h/(H-1)}$ suppresses wall-blocked waypoints};
+\node[subbox=themeorange, font=\scriptsize, minimum width=9.8cm] at (12.4, 1.4) 
+    {\textbf{Логиты внимания}: $\text{Logits}_{h,k} = \frac{Q_s K_k^\top}{\sqrt{d_k}} - \lambda \cdot m_h \cdot k \quad (m_h = 2^{-4h/(H-1)})$};
 
-\node[subbox=themeorange, fill=themeorange!6, font=\scriptsize, minimum width=9.8cm] at (12.4, 0.1) 
-    {\textbf{Aggregation}: $C_s = \sum_k \operatorname{Softmax}(\text{Logits}_{k}) V_k \in \mathbb{R}^{384}$};
+\node[subbox=themeorange, fill=themeorange!6, font=\scriptsize, minimum width=9.8cm] at (12.4, 0.25) 
+    {\textbf{Агрегация}: $C_s = \sum_k \operatorname{Softmax}(\text{Logits}_{k}) V_k \in \mathbb{R}^{384}$};
 
 \draw[carr=themeblue] (q_card.east) -- node[above=2pt, font=\scriptsize\bfseries] {$Q_s$} (cross_card.west);
 \draw[carr=themepurple] (sa_card.south) -| ([xshift=35pt]cross_card.north);
@@ -168,48 +170,48 @@
 % ==============================================================================
 % 4. GATED FUSION & SPHERICAL PROJECTION (STEP 6)
 % ==============================================================================
-\node[box=themeteal, minimum width=10.6cm, minimum height=1.9cm] (fuse_card) at (7.8, -1.9) {};
-\node[badge=themeteal] (b6) at (2.8, -1.25) {6};
-\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=3pt of b6] 
-    {Gated Residual Fusion \& Unit Sphere Normalization $\mathbb{S}^{d-1}$};
+\node[box=themeteal, minimum width=9.8cm, minimum height=2.0cm] (fuse_card) at (7.4, -1.9) {};
+\node[badge=themeteal] (b6) at (2.6, -1.15) {6};
+\node[font=\bfseries\footnotesize, text=themeteal!90!black, right=2pt of b6] 
+    {Стробированное слияние и проекция $\mathbb{S}^{d-1}$};
 
-\node[subbox=themeteal, font=\scriptsize, minimum width=10.0cm] at (7.8, -2.15) 
+\node[subbox=themeteal, font=\scriptsize, minimum width=9.2cm] at (7.4, -2.15) 
     {$\gamma = \sigma(\text{Dense}([Q_s, C_s])), \quad h_{\text{fused}} = \gamma \odot C_s + (1-\gamma) \odot Q_s$\\
-    \textbf{Spherical Output}: $z_{\text{cmd}} = \sqrt{d} \cdot \frac{\text{Head}(h_{\text{fused}})}{\|\text{Head}(h_{\text{fused}})\|_2 + 10^{-8}} \in \mathbb{S}^{d-1}$};
+    \textbf{Командный латент}: $z_{\text{cmd}} = \sqrt{d} \cdot \frac{\text{Head}(h_{\text{fused}})}{\|\text{Head}(h_{\text{fused}})\|_2 + 10^{-8}} \in \mathbb{S}^{d-1}$};
 
 \draw[carr=themeblue] (q_card.south) |- ([yshift=4pt]fuse_card.west);
 \draw[carr=themeorange] (cross_card.south) -- ([xshift=40pt]fuse_card.north);
 
 % Policy Target Output
-\node[box=themegreen, minimum width=4.6cm, minimum height=1.9cm] (out_pi) at (15.2, -1.9) 
-    {\textbf{Frozen Policy} $\pi^\ell$\\\scriptsize $\pi^\ell(a_t \mid s_t, z_{\text{cmd}}) \to a_t$\\
-    \scriptsize Collision-free execution\\\scriptsize \textbf{93.3\% Navigation}};
+\node[box=themegreen, minimum width=4.4cm, minimum height=2.0cm] (out_pi) at (15.2, -1.9) 
+    {\textbf{Политика} $\pi^\ell$\\\scriptsize $\pi^\ell(a_t \mid s_t, z_{\text{cmd}}) \to a_t$\\
+    \scriptsize Безопасный обход стен\\\scriptsize \textbf{Успех: 93.3\%}};
 
-\draw[carr=themeteal] (fuse_card.east) -- node[above=4pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (out_pi.west);
+\draw[carr=themeteal] (fuse_card.east) -- node[above=2pt, font=\scriptsize\bfseries] {$z_{\text{cmd}}$} (out_pi.west);
 
 
 % ==============================================================================
 % BOTTOM 5-COMPONENT LOSS PILLS
 % ==============================================================================
-\node[pill=themeblue, font=\tiny\bfseries, minimum width=3.3cm] (p1) at (1.3, -5.6) 
-    {\textbf{1. Cloning} $\mathcal{L}_{\text{BC}}$\\
-    $\lambda_c(1{-}\cos) + \lambda_m\|\Delta z\|^2$};
+\node[pill=themeblue, font=\scriptsize, minimum width=3.3cm] (p1) at (1.3, -5.4) 
+    {\textbf{1. Клонирование $\mathcal{L}_{\text{BC}}$}\\
+    \tiny $\lambda_c(1{-}\cos) + \lambda_m\|\Delta z\|^2$};
 
-\node[pill=themepurple, font=\tiny\bfseries, minimum width=3.3cm] (p2) at (5.0, -5.6) 
-    {\textbf{2. Action} $\mathcal{L}_{\text{Act}}$\\
-    $\lambda_a \|\pi^\ell(s, \hat{z}) - a^*\|^2$};
+\node[pill=themepurple, font=\scriptsize, minimum width=3.3cm] (p2) at (5.0, -5.4) 
+    {\textbf{2. Действия $\mathcal{L}_{\text{Act}}$}\\
+    \tiny $\lambda_a \|\pi^\ell(s, \hat{z}) - a^*\|^2$};
 
-\node[pill=themeteal, font=\tiny\bfseries, minimum width=3.3cm] (p3) at (8.7, -5.6) 
-    {\textbf{3. Reach} $\mathcal{L}_{\text{Reach}}$\\
-    $-\lambda_r (F(s, \hat{z})^\top \hat{z})$};
+\node[pill=themeteal, font=\scriptsize, minimum width=3.3cm] (p3) at (8.7, -5.4) 
+    {\textbf{3. Достижимость $\mathcal{L}_{\text{Reach}}$}\\
+    \tiny $-\lambda_r (F(s, \hat{z})^\top \hat{z})$};
 
-\node[pill=themeamber, font=\tiny\bfseries, minimum width=3.3cm] (p4) at (12.4, -5.6) 
-    {\textbf{4. Goal} $\mathcal{L}_{\text{Goal}}$\\
-    $-\lambda_g (\hat{z}^\top B(w_1))$};
+\node[pill=themeamber, font=\scriptsize, minimum width=3.3cm] (p4) at (12.4, -5.4) 
+    {\textbf{4. Цель $\mathcal{L}_{\text{Goal}}$}\\
+    \tiny $-\lambda_g (\hat{z}^\top B(w_1))$};
 
-\node[pill=themered, font=\tiny\bfseries, minimum width=3.3cm] (p5) at (16.1, -5.6) 
-    {\textbf{5. Auxiliary} $\mathcal{L}_{\text{aux}}$\\
-    $\lambda_{\text{aux}}\|\hat{z} - z^*_{\text{single}}\|^2$};
+\node[pill=themered, font=\scriptsize, minimum width=3.3cm] (p5) at (16.1, -5.4) 
+    {\textbf{5. Вспомогат. $\mathcal{L}_{\text{aux}}$}\\
+    \tiny $\lambda_{\text{aux}}\|\hat{z} - z^*_{\text{single}}\|^2$};
 
 \end{tikzpicture}
 \end{document}
