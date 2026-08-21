@@ -1,0 +1,39 @@
+# Configuration for Waypoint Translator Training (Single Waypoint & Sequence-Aware Attention)
+defaults:
+  - _self_
+
+mode: sequence_attn # 'single_wp' or 'sequence_attn'
+split: medium
+checkpoint_dir: fb-test
+
+# Dataset Generation
+n_pairs: 30000
+noise_sigma: 0.05
+max_seq_len: 16
+lookahead_dist: 2.6
+
+# Network Architecture
+hidden_dim: 256
+n_layers: 2
+num_heads: 4
+
+# Training Hyperparameters
+epochs: 100
+batch_size: 256
+lr: 3e-4
+l_cos: 1.0
+l_mse: 0.1
+l_action: 0.5
+l_reach: 0.02
+l_goal: 0.05
+
+# Logging & Output
+use_mlflow: true
+seed: 42
+
+hydra:
+  run:
+    dir: outputs/train_translators/${now:%Y-%m-%d_%H-%M-%S}_${mode}_${split}
+  sweep:
+    dir: outputs/train_translators/multirun_${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}_${mode}_${split}

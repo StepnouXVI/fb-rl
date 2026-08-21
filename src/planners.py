@@ -526,3 +526,191 @@ class DistilledJAXPlanner(BasePlanner):
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)
 
+
+class WaypointTranslatorPlanner(BufferGraphPlanner):
+    """
+    Combines global topological Dijkstra planning with a learned Direct Waypoint Translator:
+    Dijkstra computes topological next waypoint w_1 -> Translator predicts z_cmd for low-level actor.
+    """
+    def __init__(
+        self,
+        agent,
+        dataset_observations,
+        checkpoint_path,
+        n_landmarks=1000,
+        max_edge_radius=3.5,
+        reachability_cutoff=35.0,
+        lookahead_dist=2.6,
+        hidden_dim=256,
+        n_layers=3,
+        name="Dijkstra + Waypoint Translator",
+    ):
+        super().__init__(
+            agent=agent,
+            dataset_observations=dataset_observations,
+            n_landmarks=n_landmarks,
+            max_edge_radius=max_edge_radius,
+            reachability_cutoff=reachability_cutoff,
+            lookahead_dist=lookahead_dist,
+            name=name,
+        )
+        from src.waypoint_translators import FlaxSingleWaypointTranslator
+        self.translator_def = FlaxSingleWaypointTranslator(
+            latent_dim=agent.config["latent_dim"],
+            hidden_dim=hidden_dim,
+            n_layers=n_layers,
+        )
+        import pickle
+        with open(checkpoint_path, "rb") as f:
+            data = pickle.load(f)
+            self.translator_params = flax.core.freeze(data["params"])
+
+        @functools.partial(jax.jit, static_argnames=("temp",))
+        def _fused_step(obs_jnp, w1_jnp, params, seed_k=None, temp=0.0):
+            z_cmd = self.translator_def.apply({"params": params}, obs_jnp[None, :], w1_jnp[None, :])[0]
+            act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
+            if temp == 0.0 or seed_k is None:
+                a = act_dist.mode()
+            else:
+                a = act_dist.sample(seed=seed_k)
+            return jnp.clip(a[0], -1.0, 1.0), z_cmd
+
+        self._fused_step = _fused_step
+
+    def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
+        if not self.path_coords:
+            self.reset(obs, goal_z)
+
+        obs_xy = np.asarray(obs[:2])
+        search_end = min(len(self.path_coords), self.current_path_idx + 12)
+        window_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(self.current_path_idx, search_end)]
+        best_offset = int(np.argmin(window_dists))
+        self.current_path_idx += best_offset
+
+        accum = 0.0
+        target_idx = self.current_path_idx
+        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
+            target_idx += 1
+
+        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+        if dist_to_final < 1.8:
+            target_latent = goal_z
+            is_direct = True
+            curr_c = self.path_coords[-1]
+        else:
+            target_latent = self.path_latents[target_idx]
+            is_direct = False
+            curr_c = self.path_coords[target_idx]
+
+        self.last_subgoal_info = {
+            "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
+            "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
+            "is_direct_goal": is_direct,
+        }
+
+        eval_temp = temperature
+        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
+        action, _ = self._fused_step(
+            jnp.asarray(obs), jnp.asarray(target_latent), self.translator_params, seed_k, eval_temp
+        )
+        return np.asarray(action)
+
+
+class SequenceWaypointAttentionPlanner(BufferGraphPlanner):
+    """
+    Full Sequence-Aware Planner:
+    Dijkstra provides the full remaining waypoint sequence -> Multi-Head Cross-Attention Transformer
+    reasons across the full trajectory to emit intention z_cmd for low-level actor.
+    """
+    def __init__(
+        self,
+        agent,
+        dataset_observations,
+        checkpoint_path,
+        n_landmarks=1000,
+        max_edge_radius=3.5,
+        reachability_cutoff=35.0,
+        lookahead_dist=2.6,
+        max_seq_len=16,
+        hidden_dim=256,
+        num_heads=4,
+        n_layers=2,
+        name="Dijkstra + Sequence Attention Translator",
+    ):
+        super().__init__(
+            agent=agent,
+            dataset_observations=dataset_observations,
+            n_landmarks=n_landmarks,
+            max_edge_radius=max_edge_radius,
+            reachability_cutoff=reachability_cutoff,
+            lookahead_dist=lookahead_dist,
+            name=name,
+        )
+        self.max_seq_len = max_seq_len
+        from src.waypoint_translators import FlaxSequenceWaypointAttentionTranslator
+        self.seq_translator_def = FlaxSequenceWaypointAttentionTranslator(
+            latent_dim=agent.config["latent_dim"],
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            max_seq_len=max_seq_len,
+            n_layers=n_layers,
+        )
+        import pickle
+        with open(checkpoint_path, "rb") as f:
+            data = pickle.load(f)
+            self.seq_params = flax.core.freeze(data["params"])
+
+        @functools.partial(jax.jit, static_argnames=("temp",))
+        def _fused_seq_step(obs_jnp, seq_jnp, mask_jnp, params, seed_k=None, temp=0.0):
+            z_cmd = self.seq_translator_def.apply(
+                {"params": params}, obs_jnp[None, :], seq_jnp[None, :, :], mask_jnp[None, :]
+            )[0]
+            act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
+            if temp == 0.0 or seed_k is None:
+                a = act_dist.mode()
+            else:
+                a = act_dist.sample(seed=seed_k)
+            return jnp.clip(a[0], -1.0, 1.0), z_cmd
+
+        self._fused_seq_step = _fused_seq_step
+
+    def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
+        if not self.path_coords:
+            self.reset(obs, goal_z)
+
+        obs_xy = np.asarray(obs[:2])
+        search_end = min(len(self.path_coords), self.current_path_idx + 12)
+        window_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(self.current_path_idx, search_end)]
+        best_offset = int(np.argmin(window_dists))
+        self.current_path_idx += best_offset
+
+        # Build future waypoint sequence
+        remaining_latents = self.path_latents[self.current_path_idx :]
+        if not remaining_latents:
+            remaining_latents = [goal_z]
+
+        # Truncate / pad to max_seq_len
+        K = min(len(remaining_latents), self.max_seq_len)
+        padded_seq = np.zeros((self.max_seq_len, self.agent.config["latent_dim"]), dtype=np.float32)
+        seq_mask = np.zeros(self.max_seq_len, dtype=bool)
+
+        for i in range(K):
+            padded_seq[i] = remaining_latents[i]
+            seq_mask[i] = True
+
+        curr_c = self.path_coords[min(self.current_path_idx, len(self.path_coords) - 1)]
+        self.last_subgoal_info = {
+            "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
+            "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
+            "is_direct_goal": False,
+        }
+
+        eval_temp = temperature
+        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
+        action, _ = self._fused_seq_step(
+            jnp.asarray(obs), jnp.asarray(padded_seq), jnp.asarray(seq_mask), self.seq_params, seed_k, eval_temp
+        )
+        return np.asarray(action)
+
+
