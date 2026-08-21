@@ -20,6 +20,7 @@ from src.jax_distillation import build_flax_translator, make_train_step, make_ev
 def generate_or_load_golden_dataset(
     agent,
     train_obs: np.ndarray,
+    split: str = "medium",
     n_pairs: int = 10000,
     noise_sigma: float = 0.05,
     save_path: str = None,
@@ -39,11 +40,12 @@ def generate_or_load_golden_dataset(
             "a_targets": data["a_targets"],
         }
 
-    print(f"Constructing Dijkstra teacher graph on {len(train_obs)} observations...")
+    n_landmarks = 2000 if split == "large" else 1000
+    print(f"Constructing Dijkstra teacher graph with {n_landmarks} landmarks on {len(train_obs)} observations...")
     teacher = BufferGraphPlanner(
         agent,
         train_obs,
-        n_landmarks=1000,
+        n_landmarks=n_landmarks,
         max_edge_radius=3.5,
         reachability_cutoff=35.0,
         lookahead_dist=2.6,
@@ -158,6 +160,7 @@ def train_jax_distillation(
     dataset = generate_or_load_golden_dataset(
         agent=agent,
         train_obs=train_ds["observations"],
+        split=split,
         n_pairs=n_pairs,
         noise_sigma=noise_sigma,
         save_path=data_cache_path,

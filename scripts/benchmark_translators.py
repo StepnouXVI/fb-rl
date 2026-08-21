@@ -71,6 +71,8 @@ def run_comprehensive_benchmark(
 
     planners = []
 
+    n_landmarks = 2000 if split == "large" else 1000
+
     # 1. Single-Intention Baseline
     planners.append(
         BaselinePlanner(agent, dataset_states=train_obs, name="1. Single-Intention Baseline")
@@ -81,7 +83,7 @@ def run_comprehensive_benchmark(
         BufferGraphPlanner(
             agent,
             train_obs,
-            n_landmarks=1000,
+            n_landmarks=n_landmarks,
             max_edge_radius=3.5,
             reachability_cutoff=35.0,
             lookahead_dist=2.6,
@@ -96,6 +98,7 @@ def run_comprehensive_benchmark(
                 agent=agent,
                 dataset_observations=train_obs,
                 checkpoint_path=single_wp_ckpt,
+                n_landmarks=n_landmarks,
                 hidden_dim=384,
                 n_layers=4,
                 lookahead_dist=2.6,
@@ -112,6 +115,7 @@ def run_comprehensive_benchmark(
                 agent=agent,
                 dataset_observations=train_obs,
                 checkpoint_path=seq_attn_ckpt,
+                n_landmarks=n_landmarks,
                 hidden_dim=384,
                 num_heads=6,
                 n_layers=4,
@@ -130,6 +134,7 @@ def run_comprehensive_benchmark(
                 agent=agent,
                 dataset_observations=train_obs,
                 checkpoint_path=enhanced_seq_ckpt,
+                n_landmarks=n_landmarks,
                 hidden_dim=384,
                 num_heads=6,
                 n_layers=4,

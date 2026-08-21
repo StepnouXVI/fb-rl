@@ -37,6 +37,7 @@ def generate_waypoint_sequences_dataset(
     noise_sigma: float = 0.05,
     max_seq_len: int = 16,
     lookahead_dist: float = 2.6,
+    split: str = "medium",
     cache_path: str = None,
     seed: int = 42,
 ) -> Dict[str, np.ndarray]:
@@ -55,11 +56,12 @@ def generate_waypoint_sequences_dataset(
             "a_targets": data["a_targets"],
         }
 
-    print(f"Constructing Dijkstra teacher graph on {len(train_obs)} observations...")
+    n_landmarks = 2000 if split == "large" else 1000
+    print(f"Constructing Dijkstra teacher graph with {n_landmarks} landmarks on {len(train_obs)} observations...")
     teacher = BufferGraphPlanner(
         agent,
         train_obs,
-        n_landmarks=1000,
+        n_landmarks=n_landmarks,
         max_edge_radius=3.5,
         reachability_cutoff=35.0,
         lookahead_dist=lookahead_dist,
@@ -206,6 +208,7 @@ def main(cfg: DictConfig):
         noise_sigma=cfg.noise_sigma,
         max_seq_len=cfg.max_seq_len,
         lookahead_dist=cfg.lookahead_dist,
+        split=cfg.split,
         cache_path=cache_path,
         seed=cfg.seed,
     )
