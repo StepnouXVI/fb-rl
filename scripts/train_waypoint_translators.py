@@ -31,7 +31,7 @@ from src.waypoint_translators import (
 def generate_waypoint_sequences_dataset(
     agent,
     train_obs: np.ndarray,
-    n_pairs: int = 30000,
+    n_pairs: int = 60000,
     noise_sigma: float = 0.05,
     max_seq_len: int = 16,
     lookahead_dist: float = 2.6,
@@ -61,50 +61,77 @@ def generate_waypoint_sequences_dataset(
         lookahead_dist=lookahead_dist,
     )
 
-    print(f"Generating {n_pairs} multi-hop waypoint sequences (max_seq_len={max_seq_len}, noise={noise_sigma})...")
+    print(f"Generating {n_pairs} multi-stage waypoint sequences with variable trajectory offsets (max_seq_len={max_seq_len}, noise={noise_sigma})...")
     rng = np.random.default_rng(seed)
     s_idxs = rng.choice(len(train_obs), size=n_pairs)
     g_idxs = rng.choice(len(train_obs), size=n_pairs)
 
-    raw_states = train_obs[s_idxs].copy()
-    raw_goals = train_obs[g_idxs].copy()
-
-    # Apply Gaussian noise to states for recovery from drift
-    noise = rng.normal(0.0, noise_sigma, size=raw_states.shape).astype(np.float32)
-    noisy_states = (raw_states + noise).astype(np.float32)
+    raw_starts = train_obs[s_idxs]
+    raw_goals = train_obs[g_idxs]
 
     final_goals_z = np.asarray(
         agent.normalize_z(agent.network.select("backward_repr")(raw_goals))
     )
 
     latent_dim = agent.config["latent_dim"]
+    obs_dim = raw_starts.shape[-1]
+
+    states = np.zeros((n_pairs, obs_dim), dtype=np.float32)
     wp_seqs = np.zeros((n_pairs, max_seq_len, latent_dim), dtype=np.float32)
     seq_masks = np.zeros((n_pairs, max_seq_len), dtype=bool)
     w1_zs = np.zeros((n_pairs, latent_dim), dtype=np.float32)
     z_targets = np.zeros((n_pairs, latent_dim), dtype=np.float32)
 
-    for i in tqdm(range(n_pairs), desc="Dijkstra Multi-Hop Sequence Extraction"):
-        teacher.reset(noisy_states[i], final_goals_z[i])
-        subgoal_z = teacher.get_subgoal_latent(noisy_states[i], final_goals_z[i], step=0)
-        z_targets[i] = subgoal_z
+    for i in tqdm(range(n_pairs), desc="Dijkstra Multi-Stage Sequence Extraction"):
+        teacher.reset(raw_starts[i], final_goals_z[i])
+        path_len = len(teacher.path_coords)
 
-        remaining_latents = teacher.path_latents[teacher.current_path_idx :]
-        if not remaining_latents:
-            remaining_latents = [final_goals_z[i]]
+        # Sample random step index t along the planned trajectory [0, path_len-1]
+        t = int(rng.integers(0, max(path_len, 1)))
 
-        w1_zs[i] = remaining_latents[0]
+        # State at step t + Gaussian noise for drift recovery
+        base_state = teacher.path_states[t] if t < len(teacher.path_states) else raw_starts[i]
+        noise = rng.normal(0.0, noise_sigma, size=base_state.shape).astype(np.float32)
+        s_t = (base_state + noise).astype(np.float32)
+        states[i] = s_t
 
-        K = min(len(remaining_latents), max_seq_len)
+        obs_xy = s_t[:2]
+        dist_to_final = float(np.linalg.norm(obs_xy - teacher.path_coords[-1]))
+
+        # Lookahead along remaining path from step t
+        accum = 0.0
+        target_idx = t
+        while target_idx < path_len - 1 and accum < lookahead_dist:
+            accum += np.linalg.norm(teacher.path_coords[target_idx + 1] - teacher.path_coords[target_idx])
+            target_idx += 1
+
+        # Select target waypoint and future sequence
+        if target_idx >= path_len - 1 or dist_to_final <= 2.2:
+            target_latent = final_goals_z[i]
+            future_latents = [final_goals_z[i]]
+        else:
+            target_latent = teacher.path_latents[target_idx]
+            future_latents = teacher.path_latents[target_idx:] + [final_goals_z[i]]
+
+        # Compute ground truth intention z* via high_actor
+        high_dist = agent.network.select("high_actor")(
+            s_t[None, :], target_latent[None, :], goal_encoded=True, temperature=0.0
+        )
+        z_targets[i] = np.asarray(agent.normalize_z(high_dist.mode())[0])
+        w1_zs[i] = target_latent
+
+        # Build padded sequence with explicit terminal goal
+        K = min(len(future_latents), max_seq_len)
         for k in range(K):
-            wp_seqs[i, k] = remaining_latents[k]
+            wp_seqs[i, k] = future_latents[k]
             seq_masks[i, k] = True
 
     print("Computing target actions through frozen low-level actor...")
-    act_dist = agent.network.select("actor")(noisy_states, z_targets, goal_encoded=True, temperature=0.0)
+    act_dist = agent.network.select("actor")(states, z_targets, goal_encoded=True, temperature=0.0)
     a_targets = np.asarray(act_dist.mode())
 
     dataset = {
-        "states": noisy_states,
+        "states": states,
         "wp_seqs": wp_seqs,
         "seq_masks": seq_masks,
         "w1_zs": w1_zs,

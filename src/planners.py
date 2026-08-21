@@ -217,8 +217,10 @@ class BufferGraphPlanner(BasePlanner):
         else:
             path = [start_idx, goal_idx]
 
+        self.path_indices = path
         self.path_coords = [self.landmark_coords[i] for i in path]
         self.path_latents = [self.landmark_latents[i] for i in path]
+        self.path_states = [np.asarray(self.landmarks[i]) for i in path]
         self.goal_z = goal_z
         self.current_path_idx = 0
         self.pos_history = []
@@ -695,25 +697,37 @@ class SequenceWaypointAttentionPlanner(BufferGraphPlanner):
         best_offset = int(np.argmin(window_dists))
         self.current_path_idx += best_offset
 
-        # Build future waypoint sequence
-        remaining_latents = self.path_latents[self.current_path_idx :]
-        if not remaining_latents:
-            remaining_latents = [goal_z]
+        accum = 0.0
+        target_idx = self.current_path_idx
+        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
+            target_idx += 1
 
-        # Truncate / pad to max_seq_len
-        K = min(len(remaining_latents), self.max_seq_len)
+        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+
+        # Build future waypoint sequence with explicit terminal goal
+        if target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2:
+            future_latents = [goal_z]
+            curr_c = self.path_coords[-1]
+            is_direct = True
+        else:
+            future_latents = self.path_latents[target_idx :] + [goal_z]
+            curr_c = self.path_coords[target_idx]
+            is_direct = False
+
+        # Pad to max_seq_len
+        K = min(len(future_latents), self.max_seq_len)
         padded_seq = np.zeros((self.max_seq_len, self.agent.config["latent_dim"]), dtype=np.float32)
         seq_mask = np.zeros(self.max_seq_len, dtype=bool)
 
         for i in range(K):
-            padded_seq[i] = remaining_latents[i]
+            padded_seq[i] = future_latents[i]
             seq_mask[i] = True
 
-        curr_c = self.path_coords[min(self.current_path_idx, len(self.path_coords) - 1)]
         self.last_subgoal_info = {
             "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
             "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
-            "is_direct_goal": False,
+            "is_direct_goal": is_direct,
         }
 
         eval_temp = temperature
