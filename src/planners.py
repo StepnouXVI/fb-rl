@@ -547,23 +547,27 @@ class WaypointTranslatorPlanner(BufferGraphPlanner):
     ):
         super().__init__(
             agent=agent,
-            dataset_observations=dataset_observations,
+            dataset_states=dataset_observations,
             n_landmarks=n_landmarks,
             max_edge_radius=max_edge_radius,
             reachability_cutoff=reachability_cutoff,
             lookahead_dist=lookahead_dist,
             name=name,
         )
-        from src.waypoint_translators import FlaxSingleWaypointTranslator
-        self.translator_def = FlaxSingleWaypointTranslator(
-            latent_dim=agent.config["latent_dim"],
-            hidden_dim=hidden_dim,
-            n_layers=n_layers,
-        )
         import pickle
         with open(checkpoint_path, "rb") as f:
             data = pickle.load(f)
             self.translator_params = flax.core.freeze(data["params"])
+            cfg = data.get("config", {})
+            h_dim = cfg.get("hidden_dim", hidden_dim)
+            n_lay = cfg.get("n_layers", n_layers)
+
+        from src.waypoint_translators import FlaxSingleWaypointTranslator
+        self.translator_def = FlaxSingleWaypointTranslator(
+            latent_dim=agent.config["latent_dim"],
+            hidden_dim=h_dim,
+            n_layers=n_lay,
+        )
 
         @functools.partial(jax.jit, static_argnames=("temp",))
         def _fused_step(obs_jnp, w1_jnp, params, seed_k=None, temp=0.0):
@@ -640,26 +644,32 @@ class SequenceWaypointAttentionPlanner(BufferGraphPlanner):
     ):
         super().__init__(
             agent=agent,
-            dataset_observations=dataset_observations,
+            dataset_states=dataset_observations,
             n_landmarks=n_landmarks,
             max_edge_radius=max_edge_radius,
             reachability_cutoff=reachability_cutoff,
             lookahead_dist=lookahead_dist,
             name=name,
         )
-        self.max_seq_len = max_seq_len
-        from src.waypoint_translators import FlaxSequenceWaypointAttentionTranslator
-        self.seq_translator_def = FlaxSequenceWaypointAttentionTranslator(
-            latent_dim=agent.config["latent_dim"],
-            hidden_dim=hidden_dim,
-            num_heads=num_heads,
-            max_seq_len=max_seq_len,
-            n_layers=n_layers,
-        )
         import pickle
         with open(checkpoint_path, "rb") as f:
             data = pickle.load(f)
             self.seq_params = flax.core.freeze(data["params"])
+            cfg = data.get("config", {})
+            h_dim = cfg.get("hidden_dim", hidden_dim)
+            n_heads = cfg.get("num_heads", num_heads)
+            n_lay = cfg.get("n_layers", n_layers)
+            m_len = cfg.get("max_seq_len", max_seq_len)
+
+        self.max_seq_len = m_len
+        from src.waypoint_translators import FlaxSequenceWaypointAttentionTranslator
+        self.seq_translator_def = FlaxSequenceWaypointAttentionTranslator(
+            latent_dim=agent.config["latent_dim"],
+            hidden_dim=h_dim,
+            num_heads=n_heads,
+            max_seq_len=m_len,
+            n_layers=n_lay,
+        )
 
         @functools.partial(jax.jit, static_argnames=("temp",))
         def _fused_seq_step(obs_jnp, seq_jnp, mask_jnp, params, seed_k=None, temp=0.0):
