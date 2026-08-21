@@ -1,9 +1,9 @@
-\section{High-Level Sequence Reasoning \& Waypoint Translators}
+\section{Планирование над последовательностями и трансляторы вейпоинтов}
 
-While amortized $O(1)$ distillation provides remarkable speed, certain hairpin turns in AntMaze benefit from explicitly conditioning on the multi-hop topological sequence $\mathcal{P} = [w_1, w_2, \dots, w_K, g]$. We designed two distinct translators to replace the default stochastic \texttt{high\_actor}.
+Хотя дистилляция обеспечивает максимальную скорость инференса, на сложных S-образных маневрах и двойных поворотах лабиринта ключевую роль играет явное моделирование геометрической цепочки вейпоинтов $\mathcal{P} = [w_1, w_2, \dots, w_K, g]$.
 
 \subsection{Single Waypoint Gated Translator (\texttt{SingleWPPlanner})}
-The Single Waypoint Translator maps the current state $s_t$ and the immediate lookahead waypoint $B(w_1)$ directly to the low-level intention $z_{\text{cmd}}$:
+Транслятор ближайшей подцели заменяет стохастический $\pi^h$, напрямую отображая пару $(s_t, B(w_1))$ в оптимальную команду для исполнителя $\pi^\ell$:
 \begin{align}
     h_s &= \text{MLP}_s(s_t), \quad h_w = \text{MLP}_w(B(w_1)) \\
     \gamma &= \sigma(\text{Linear}([h_s, h_w])) \\
@@ -11,44 +11,41 @@ The Single Waypoint Translator maps the current state $s_t$ and the immediate lo
     z_{\text{cmd}} &= \text{ProjectSphere}(\text{ResNetBlocks}(h_{\text{fused}}))
 \end{align}
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\linewidth]{figures/fig4_single_wp_translator.pdf}
-    \caption{\textbf{Single Waypoint Gated Translator Architecture}: Gated feature fusion between agent state $s_t$ and target lookahead waypoint $B(w_1)$ with deep residual refinement and sphere normalization.}
+    \includegraphics[width=\textwidth]{figures/fig4_single_wp_translator.pdf}
+    \caption{\textbf{Архитектура транслятора Single Waypoint Gated Translator}: Dual MLP с LayerNorm и GELU, адаптивный гейтинг состояния и ориентира упреждения, глубокие остаточные блоки и выходная проекция $z_{\text{cmd}} \in \mathbb{S}^{d-1}$ напрямую в $\pi^\ell$.}
     \label{fig:single_wp_translator}
-\end{figure}
+\end{figure*}
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\linewidth]{figures/fig5_enhanced_sequence_transformer.pdf}
-    \caption{\textbf{Enhanced Sequence-Aware Attention Transformer Architecture}: Trajectory Self-Attention over sequence $[B(w_1), \dots, B(w_K), B(g)]$, ALiBi Distance-Decay Cross-Attention, Local-Global windowing, and Curvature Encodings.}
+    \includegraphics[width=\textwidth]{figures/fig5_enhanced_sequence_transformer.pdf}
+    \caption{\textbf{Архитектура Enhanced Sequence-Aware Attention Transformer}: Trajectory Self-Attention над последовательностью $[B(w_1), \dots, B(w_K), B(g)]$ с токенами кривизны $\cos \theta_k$, State Cross-Attention со штрафом ALiBi ($-\lambda m_h k$), Local-Global windowing и вспомогательным локальным лоссом $\mathcal{L}_{\text{aux}}$.}
     \label{fig:enhanced_transformer}
-\end{figure}
+\end{figure*}
 
 \subsection{Enhanced Sequence-Aware Attention Transformer (\texttt{EnhancedSequencePlanner})}
-Standard transformers trained over multi-hop sequences suffer from \textit{wall-leakage}: if a waypoint $w_4$ located in an adjacent corridor is Euclidean-close to $s_t$, unconstrained cross-attention assigns high weight to $w_4$, pulling the robot into the dividing wall. 
+Стандартные трансформеры над цепочками вейпоинтов страдают от эффекта \textit{«утечки внимания сквозь стены» (Wall-Leakage)}: если вейпоинт $w_4$ в соседнем коридоре геометрически близок к $s_t$, Cross-Attention придает ему высокий вес, что стягивает муравья в стену.
 
-To overcome this fundamental challenge, our \texttt{FlaxEnhancedSequenceWaypointAttentionTranslator} introduces four key mathematical mechanisms:
+Архитектура \texttt{EnhancedSequenceWaypointAttentionTranslator} решает эту фундаментальную проблему с помощью четырех математических инноваций:
 
-\subsubsection{1. ALiBi Distance-Decay Cross-Attention Bias}
-Inspired by ALiBi \cite{press2021train}, we inject an explicit geometric distance penalty into the cross-attention logits before the Softmax operation:
+\subsubsection{1. ALiBi / Distance-Decay Attention Bias}
+В логиты Cross-Attention между состоянием $s_t$ и цепочкой вейпоинтов вводится геометрический штраф за порядковый номер точки:
 \begin{equation}
     \text{Attn}(Q_s, K_w) = \text{Softmax}\left(\frac{Q_s K_w^\top}{\sqrt{d_{\text{head}}}} - \lambda_{\text{decay}} \cdot m_h \cdot \min(k, W)\right)
 \end{equation}
-where $k \in \{0, 1, \dots, K-1\}$ is the index along the trajectory, $m_h = 2^{-4h/(H-1)}$ are head-specific geometric decay rates across heads $h \in \{0, \dots, H-1\}$, and $\lambda_{\text{decay}} = 0.4$. This guarantees that 75--80\% of the attention weight concentrates strictly on the immediate corridor, while the tail provides global orientational anchoring.
+где $m_h = 2^{-4h/(H-1)}$ — наклоны голов внимания, а $\lambda_{\text{decay}} = 0.4$. Это гарантирует, что 80\% энергии внимания концентрируется на ближайших 1--2 точках текущего коридора, а хвост последовательности задает глобальную ориентацию.
 
-\subsubsection{2. Local-Global Windowing and Terminal Anchoring}
-The attention mask $\mathcal{M}$ restricts keys to the active local window $k < W$ ($W=6$) plus the designated global terminal goal token $[B(g_{\text{final}})]$, mathematically blocking attention leakage to distant intermediate turns.
+\subsubsection{2. Локально-глобальное окно (Local-Global Windowing)}
+Маска внимания $\mathcal{M}$ разрешает доступ только к локальному окну ближайших $W=6$ вейпоинтов плюс обязательный глобальный терминальный токен $[B(g_{\text{final}})]$, полностью отсекая далекие промежуточные точки за другими углами.
 
-\subsubsection{3. Curvature and Turn Encodings}
-For every consecutive triplet of waypoints $(w_{k-1}, w_k, w_{k+1})$, we compute the cosine turn angle:
+\subsubsection{3. Токены кривизны поворотов (Curvature Encodings)}
+Для каждой тройки последовательных вейпоинтов вычисляется косинус угла поворота:
 \begin{equation}
     \cos \theta_k = \frac{(w_k - w_{k-1}) \cdot (w_{k+1} - w_k)}{\|w_k - w_{k-1}\|_2 \|w_{k+1} - w_k\|_2 + 10^{-6}} \in [-1, 1]
 \end{equation}
-This scalar is projected via a dedicated linear layer $E_{\text{curv}} = \text{Linear}(\cos \theta_k)$ and summed with the waypoint token representations $w_{\text{emb}} = w_{\text{proj}} + P_k + E_{\text{curv}}$, providing explicit inductive bias for sharp $90^\circ$ turns.
+который проецируется через линейный слой в эмбеддинг $E_{\text{curv}} = \text{Linear}(\cos \theta_k)$ и суммируется с токенами $w_{\text{emb}} = w_{\text{proj}} + P_k + E_{\text{curv}}$, давая трансформеру явный сигнал о $90^\circ$ поворотах.
 
-\subsubsection{4. Multi-Stage Trajectory Sampling and Auxiliary Local Loss}
-During offline dataset generation (60,000 pairs), trajectory progress offsets $t \in [0, \text{len}(\mathcal{P})-1]$ are sampled uniformly, ensuring the transformer trains equally on long trajectories ($K=16$), mid-path sequences ($K=6$), and terminal single-step regimes ($K=1$). Furthermore, an auxiliary local step loss anchors predictions:
-\begin{equation}
-    \mathcal{L}_{\text{total}} = \mathcal{L}(\theta) + \lambda_{\text{aux}} \|\hat{z}_{\text{seq}} - z^*_{\text{single\_wp}}\|_2^2 \quad (\lambda_{\text{aux}} = 0.2)
-\end{equation}
+\subsubsection{4. Многоэтапное сэмплирование и вспомогательный лосс}
+В датасете из 60 000 сэмплов точка старта выбирается случайно вдоль всего маршрута $t \in [0, \text{len}(\mathcal{P})-1]$, обеспечивая обучение модели на всех длинах цепочек ($K=16$, $K=6$, $K=1$). Локальный лосс $\mathcal{L}_{\text{aux}} = 0.2 \cdot \|\hat{z}_{\text{seq}} - z^*_{\text{single\_wp}}\|^2$ надежно якорит немедленное действие.

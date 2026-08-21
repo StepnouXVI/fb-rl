@@ -1,40 +1,40 @@
-\section{Topological Graph Planning (\texttt{BufferGraphPlanner})}
+\section{Топологическое графовое планирование (\texttt{BufferGraphPlanner})}
 
-To establish an optimal global trajectory without training generative models, we construct an offline topological reachability graph $G = (V, E)$ leveraging the frozen FB representations.
+Для нахождения глобального маршрута без использования генеративных моделей мира мы строим оффлайн-граф топологической достижимости $G = (V, E)$, используя исключительно замороженные FB-представления.
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\linewidth]{figures/fig2_buffer_graph_dijkstra.pdf}
-    \caption{\textbf{Topological Reachability Graph Construction}: Offline landmark selection from buffer observations, pairwise FB reachability verification ($F(s_i, B(s_j))^\top B(s_j) > \tau$), and multi-hop shortest path search via Dijkstra.}
+    \includegraphics[width=\textwidth]{figures/fig2_buffer_graph_dijkstra.pdf}
+    \caption{\textbf{Построение топологического графа достижимости и алгоритм Дейкстры}: (1) Выборка ориентиров из оффлайн-буфера, (2) Фильтрация ребер по FB-достижимости $F(s_i, B(s_j))^\top B(s_j) \ge 35.0$ без знания карты, (3) Поиск пути Дейкстры и выборка упреждающих вейпоинтов со скользящим окном $L = 2.6$ м.}
     \label{fig:graph_construction}
-\end{figure}
+\end{figure*}
 
-\subsection{Graph Construction and Geometric Filtering}
-Given the offline dataset $\mathcal{D} = \{s_i\}_{i=1}^N$, we subsample $K = 1000$ uniformly distributed landmark states $V = \{v_1, v_2, \dots, v_K\} \subset \mathcal{D}$. For every pair of landmarks $(v_i, v_j)$, a directed edge $(v_i, v_j) \in E$ is instantiated if and only if two criteria are simultaneously satisfied:
+\subsection{Построение графа и геометрическая фильтрация}
+Из оффлайн-датасета $\mathcal{D} = \{s_i\}_{i=1}^N$ сэмплируется $K = 1000$ равномерно распределенных ориентиров (landmarks) $V = \{v_1, v_2, \dots, v_K\} \subset \mathcal{D}$. Направленное ребро $(v_i, v_j) \in E$ создается тогда и только тогда, когда одновременно выполнены два условия:
 \begin{enumerate}[leftmargin=*,noitemsep]
-    \item \textbf{Latent FB Reachability}: The successor measure inner product exceeds a strict threshold:
+    \item \textbf{Латентная FB-достижимость}: Мера преемника превышает порог связности:
     \begin{equation}
         M(v_i, v_j) = F(v_i, B(v_j))^\top B(v_j) \ge \tau_{\text{reach}} \quad (\tau_{\text{reach}} = 35.0)
     \end{equation}
-    \item \textbf{Euclidean Locality Constraint}: The physical 2D distance does not exceed a maximum single-step radius:
+    \item \textbf{Евклидова локальность}: Расстояние в плоскости $(x, y)$ не превышает радиус одного шага:
     \begin{equation}
-        \|(x_i, y_i) - (x_j, y_j)\|_2 \le R_{\max} \quad (R_{\max} = 3.5\text{ m})
+        \|(x_i, y_i) - (x_j, y_j)\|_2 \le R_{\max} \quad (R_{\max} = 3.5\text{ м})
     \end{equation}
 \end{enumerate}
-The edge cost is assigned as $c(v_i, v_j) = \|(x_i, y_i) - (x_j, y_j)\|_2 + \beta \cdot (1 - \frac{M(v_i, v_j)}{\max M})$.
+Стоимость ребра задается как $c(v_i, v_j) = \|(x_i, y_i) - (x_j, y_j)\|_2 + \beta \cdot (1 - \frac{M(v_i, v_j)}{\max M})$.
 
-\subsection{Zero-Shot Path Finding and Lookahead Tracking}
-At test time, given the initial state $s_0$ and the target goal representation $z_{\text{goal}} = B(g)$:
+\subsection{Zero-Shot поиск пути и упреждающее слежение (Lookahead Tracking)}
+Во время инференса для начального состояния $s_0$ и цели $z_{\text{goal}} = B(g)$:
 \begin{enumerate}[leftmargin=*,noitemsep]
-    \item We project $s_0$ and $g$ to the closest graph landmarks $v_{\text{start}}, v_{\text{goal}} \in V$.
-    \item We run Dijkstra's algorithm to obtain the shortest sequence of waypoints:
+    \item $s_0$ и $g$ проецируются на ближайшие вершины графа $v_{\text{start}}, v_{\text{goal}} \in V$.
+    \item Алгоритм Дейкстры находит кратчайший путь:
     \begin{equation}
-        \mathcal{P} = [w_0, w_1, w_2, \dots, w_L, g] \quad \text{where } w_0 \approx s_0, \; w_L \approx g
+        \mathcal{P} = [w_0, w_1, w_2, \dots, w_L, g] \quad \text{где } w_0 \approx s_0, \; w_L \approx g
     \end{equation}
-    \item \textbf{Lookahead Selection}: At step $t$, the planner tracks the current progress index $i_t = \arg\min_k \|s_t[:2] - w_k[:2]\|$ and advances along the path by an accumulated lookahead distance $d_{\text{lookahead}} = 2.6\text{ m}$:
+    \item \textbf{Упреждающий вейпоинт (Lookahead Tracking)}: На каждом шаге $t$ планировщик находит текущий индекс пути $i_t = \arg\min_k \|s_t[:2] - w_k[:2]\|$ и продвигается вперед вдоль траектории на расстояние $d_{\text{lookahead}} = 2.6\text{ м}$:
     \begin{equation}
         k_{\text{target}} = \min \left\{ k \ge i_t \;\middle|\; \sum_{j=i_t}^{k-1} \|w_{j+1} - w_j\| \ge d_{\text{lookahead}} \right\}
     \end{equation}
-    \item When the distance to the final goal satisfies $\|s_t[:2] - g[:2]\| \le 2.2\text{ m}$, the planner performs seamless handover directly to $z_{\text{goal}}$.
+    \item При приближении к финишу ($\|s_t[:2] - g[:2]\| \le 2.2\text{ м}$) управление плавно передается напрямую на вектор $z_{\text{goal}}$.
 \end{enumerate}
-This formulation increases overall task success from 78.8\% (baseline) to 85.2\% (with high\_actor). However, performing online graph lookahead incurs overhead and relies on the stochastic Gaussian output of \texttt{high\_actor}.
+Построение графа повышает успешность навигации с 78.8\% (бейзлайн) до 85.2\%. Однако поиск по графу требует $O(N^2)$ памяти и вычислений при старте.

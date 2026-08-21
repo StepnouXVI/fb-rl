@@ -1,30 +1,30 @@
-\section{Technical Interview Defense \& Design Rationale}
+\section{Подготовка к финальному созвону и защита решений}
 
-To prepare for the final technical interview and defend the engineering decisions in depth, this section summarizes the core design questions, trade-offs, and failure mode analyses.
+Данный раздел содержит структурированные ответы на ключевые концептуальные вопросы, которые могут быть заданы на защите проекта.
 
-\begin{interviewbox}[Q1: Why bypass $\pi^h$ and train directly for $\pi^\ell$ in distillation?]
-\textbf{Answer}: The original $\pi^h(z_w \mid s, z_g)$ acts as an information bottleneck: it outputs a diagonal Gaussian distribution in $\mathbb{R}^d$ and was trained with advantage-weighted regression over single-step transitions. When planning along a global trajectory, cascading $\text{Dijkstra} \to \pi^h \to \pi^\ell$ compounds estimation errors at every step. By training our distilled student or waypoint translator directly to predict the command intention $z_{\text{cmd}}$ that minimizes the low-level action discrepancy $\|\pi^\ell(s, z_{\text{cmd}}) - a^*\|_2^2$, we remove the intermediate bottleneck, eliminate stochastic sampling variance, and align the representation directly with the robot's physical actuators.
+\begin{interviewbox}[Вопрос 1: Зачем убирать $\pi^h$ и обучать модели выдавать $z_{\text{cmd}}$ напрямую в $\pi^\ell$?]
+\textbf{Ответ}: Базовый $\pi^h(z_w \mid s, z_g)$ является «бутылочным горлышком»: он выдает стохастическое нормальное распределение и обучался на одиночных одношаговых переходах через AWR. При каскадном вызове $\text{Dijkstra} \to \pi^h \to \pi^\ell$ погрешности аппроксимации накапливаются на каждом шаге. Обучая трансляторы и дистиллированного студента выдавать вектор $z_{\text{cmd}}$, минимизирующий расхождение действий исполнителя $\|\pi^\ell(s, z_{\text{cmd}}) - a^*\|_2^2$, мы устраняем промежуточный шум и оптимизируем поведение робота напрямую под физику его приводов.
 \end{interviewbox}
 
-\begin{interviewbox}[Q2: What is the physical mechanism behind the 4-loss distillation?]
-\textbf{Answer}: In Equation \ref{eq:distill_loss}:
+\begin{interviewbox}[Вопрос 2: В чем физический смысл 4-компонентного лосса дистилляции?]
+\textbf{Ответ}: В Формуле \ref{eq:distill_loss}:
 \begin{enumerate}[leftmargin=*,noitemsep]
-    \item $\mathcal{L}_{\text{BC}}$ provides supervised imitation of the teacher's intention.
-    \item $\mathcal{L}_{\text{Action}}$ grounds the gradient in the low-level policy $\pi^\ell$, ensuring the predicted intention does not trigger actuator saturation or torque jitter.
-    \item $\mathcal{L}_{\text{Reach}} = -F(s, z)^\top z$ pushes $z$ into the high-density eigen-directions of the forward representation $F$, preventing the student from predicting "unreachable" intention vectors.
-    \item $\mathcal{L}_{\text{Goal}} = -z^\top B(g)$ provides a global directional compass towards the destination.
+    \item $\mathcal{L}_{\text{BC}}$ обеспечивает имитацию траектории учителя Дейкстры.
+    \item $\mathcal{L}_{\text{Action}}$ якорит градиент в исполнитель $\pi^\ell$, исключая высокочастотные паразитные осцилляции суставов.
+    \item $\mathcal{L}_{\text{Reach}} = -F(s, z)^\top z$ смещает вектор $z$ в область высокой плотности прямых собственных направлений $F$, предотвращая предсказание недостижимых латентов.
+    \item $\mathcal{L}_{\text{Goal}} = -z^\top B(g)$ задает глобальный компас в направлении финальной цели.
 \end{enumerate}
-All 4 losses are differentiated end-to-end via JAX/XLA backpropagation without requiring environment simulation.
+Все 4 лосса дифференцируются сквозным градиентом в JAX/XLA без обращения к симулятору.
 \end{interviewbox}
 
-\begin{interviewbox}[Q3: What happens if we remove the ALiBi distance decay?]
-\textbf{Answer}: Without ALiBi decay, the attention weights Softmax$(\frac{QK^\top}{\sqrt{d}})$ are purely semantic. In $U$-turns or hairpin corridors, a waypoint $w_4$ on the other side of a thin wall has high latent similarity with the state. The cross-attention assigns 30--40\% of its weight to $w_4$, pulling the resultant intention vector $z_{\text{cmd}}$ into the wall (wall-leakage). Adding the linear decay $-\lambda m_h k$ mathematically forces 80\% of the attention mass to remain on local waypoints ($w_1, w_2$), preserving sharp cornering.
+\begin{interviewbox}[Вопрос 3: Что произойдет, если отключить штраф расстояния ALiBi?]
+\textbf{Ответ}: Без ALiBi скалярное произведение $Q K^\top / \sqrt{d}$ в Cross-Attention оценивает лишь латентную похожесть. В U-образных разворотах вейпоинт $w_4$ за тонкой стеной геометрически близок к роботу. Без затухания трансформер отдает до 40\% внимания точке $w_4$, из-за чего результирующий вектор $z_{\text{cmd}}$ тянет муравья прямо в стену. Штраф $-\lambda m_h k$ математически концентрирует 80\% внимания на ближайших локальных точках коридора ($w_1, w_2$).
 \end{interviewbox}
 
-\begin{interviewbox}[Q4: Why not train a diffusion trajectory model or world model?]
-\textbf{Answer}: Generative trajectory models (e.g., Diffuser) generate raw state trajectories $\tau = (s_0, s_1, \dots, s_T)$ in $\mathbb{R}^{29}$. In continuous quadruped dynamics, hallucinated trajectories often violate physical contact constraints (e.g., foot penetration with the ground or torque limits), requiring expensive inverse kinematics or low-level tracking controllers. In contrast, operating in the latent FB intention space directly queries the verified physical policy $\pi^\ell$, ensuring every executed action is physically realizable.
+\begin{interviewbox}[Вопрос 4: Почему нельзя использовать диффузор траекторий (Diffuser) или World Model?]
+\textbf{Ответ}: Диффузоры генерируют последовательности в сыром пространстве состояний $\mathbb{R}^{29}$. В динамике четвероногого робота с контактами сгенерированные траектории почти всегда нарушают законы физики (проникновение ступней в пол, превышение лимитов моментов). Напротив, работа в латентном пространстве интенций $z \in \mathbb{S}^{d-1}$ обращается к уже обученной физически устойчивой политике $\pi^\ell$, гарантируя 100\% физическую реализуемость каждого шага.
 \end{interviewbox}
 
-\begin{interviewbox}[Q5: How does the method scale to large mazes (\texttt{antmaze-large})?]
-\textbf{Answer}: Graph planning naturally scales to arbitrarily large mazes by increasing the landmark count $K$ (e.g., from 1,000 to 5,000), as Dijkstra is guaranteed to find global geodesic paths regardless of horizon length. For distilled models, multi-stage trajectory sampling ensures the transformer can extrapolate to longer sequence horizons thanks to ALiBi's linear bias properties \cite{press2021train}.
+\begin{interviewbox}[Вопрос 5: Как решение масштабируется на большие лабиринты (\texttt{antmaze-large})?]
+\textbf{Ответ}: Графовое планирование масштабируется увеличением числа ориентиров $K$ (например, с 1000 до 5000), так как Дейкстра гарантированно находит кратчайший путь любой длины. Для трансформера линейное позиционное смещение ALiBi обладает доказанным свойством экстраполяции на последовательности произвольной длины \cite{press2021train}, превосходящие длину цепочек при обучении.
 \end{interviewbox}

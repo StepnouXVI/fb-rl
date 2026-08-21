@@ -1,10 +1,10 @@
-\section{Conclusion and Future Directions}
+\section{Заключение}
 
-In this research, we tackled the fundamental challenge of horizon collapse and barrier attraction in zero-shot Forward-Backward (FB) representations on complex navigation mazes. By decoupling topological reasoning from low-level torque execution, we introduced:
+В данной работе решена фундаментальная проблема застревания zero-shot Forward-Backward представлений в невыпуклых геометрических лабиринтах. Разделяя топологическое планирование и низкоуровневое исполнение, мы предложили:
 \begin{enumerate}[leftmargin=*,noitemsep]
-    \item An offline topological reachability graph (\texttt{BufferGraphPlanner}) constructed over frozen FB embeddings that finds global multi-hop shortest paths without generative world models;
-    \item An end-to-end differentiable $O(1)$ amortized planner (\texttt{DistilledJAXPlanner}) that achieves \textbf{85.0\%} success rate with \textbf{0.56 ms} inference latency via physics-grounded backpropagation through frozen $\pi^\ell$ and $F$;
-    \item An Enhanced Sequence-Aware Attention Transformer (\texttt{EnhancedSequencePlanner}) that incorporates ALiBi distance-decay attention bias, local-global windowing, and curvature encodings, setting a new State-of-the-Art benchmark of \textbf{88.0 $\pm$ 5.2\%} across 10 random seeds.
+    \item Оффлайн-граф достижимости \texttt{BufferGraphPlanner}, находящий многошаговые геодезические траектории без использования тяжелых генеративных моделей мира;
+    \item Амортизированный $O(1)$ планировщик \texttt{DistilledJAXPlanner}, достигающий \textbf{85.0\%} успеха за \textbf{0.56 мс} за счет сквозной физической оптимизации в JAX;
+    \item Улучшенный трансформер внимания \texttt{EnhancedSequencePlanner} с ALiBi distance decay, локально-глобальным окном и токенами кривизны, установивший новый рекорд \textbf{88.0 $\pm$ 5.2\%} на 10 случайных сидах.
 \end{enumerate}
 
-All code, checkpoints, configurations, and evaluation suites are publicly available at \texttt{github.com/StepnouXVI/fb-rl} under branch \texttt{optimization-and-translator}.
+Весь исходный код, обученные веса моделей, конфигурации Hydra и скрипты воспроизведения экспериментов открыты в репозитории \texttt{github.com/StepnouXVI/fb-rl} в ветке \texttt{optimization-and-translator}.

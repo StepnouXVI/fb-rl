@@ -1,15 +1,13 @@
 \documentclass[10pt,twocolumn,letterpaper]{article}
 
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[margin=0.75in]{geometry}
+\usepackage[T2A,T1]{fontenc}
+\usepackage[russian]{babel}
 \usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools}
 \usepackage{booktabs,tabularx,multirow,colortbl}
 \usepackage{graphicx}
 \usepackage{xcolor}
-\usepackage{standalone}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds,shadows,decorations.pathreplacing}
 \usepackage{hyperref}
 \usepackage{microtype}
 \usepackage{algorithm}
@@ -19,6 +17,7 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{enumitem}
+\usepackage[margin=0.75in]{geometry}
 
 \definecolor{mainblue}{RGB}{31, 119, 180}
 \definecolor{darkblue}{RGB}{20, 70, 120}
@@ -33,8 +32,8 @@
     linkcolor=mainblue,
     citecolor=mainblue,
     urlcolor=mainblue,
-    pdftitle={High-Level Sequence Reasoning and Latent Plan Distillation in Forward-Backward Representations},
-    pdfauthor={Research and Engineering Report}
+    pdftitle={Высокоуровневое планирование последовательностей и амортизированная дистилляция в Forward-Backward представлениях},
+    pdfauthor={Исследовательский отчет FB-RL}
 }
 
 \newtcolorbox{keyinsight}[1][]{
@@ -71,22 +70,22 @@
     after skip=8pt
 }
 
-\title{\LARGE \bfseries High-Level Sequence Reasoning \& Latent Plan Distillation\\in Forward-Backward Representations: Overcoming Horizon Collapse in Complex Mazes}
-\author{\textbf{Research \& Technical Report} \\ FB-RL Reinforcement Learning Laboratory \\ \texttt{github.com/StepnouXVI/fb-rl} (branch: \texttt{optimization-and-translator})}
-\date{August 2026}
+\title{\LARGE \bfseries Высокоуровневое планирование над последовательностями интенций и амортизированная дистилляция в FB-представлениях:\\Преодоление горизонта застревания в сложных лабиринтах}
+\author{\textbf{Исследовательский и инженерный отчет} \\ Лаборатория обучения с подкреплением FB-RL \\ \texttt{github.com/StepnouXVI/fb-rl} (ветка: \texttt{optimization-and-translator})}
+\date{Август 2026}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-Zero-shot goal-conditioned reinforcement learning using Forward-Backward (FB) representations allows executing diverse tasks without task-specific retraining. However, in long-horizon navigation benchmarks such as \texttt{antmaze-medium}, standard hierarchical controllers $\pi^h(s_t, B(g))$ suffer from severe \textit{horizon collapse}: a single latent intention $z$ cannot negotiate multi-hop topological corridors separated by physical walls, causing agents to get trapped in local potential wells (78.8\% success rate). In this paper, we systematically investigate, formulate, and benchmark three complementary paradigms that solve this challenge using frozen FB representations without world models or online environment interactions:
+Zero-shot целенаправленное обучение с подкреплением (GCRL) на основе представлений Forward-Backward (FB) позволяет решать произвольные задачи достижения целей без дообучения в среде. Однако в задачах навигации на длинных горизонтах со сложной геометрией (\texttt{ogbench-antmaze-medium-navigate-v0}) стандартные иерархические контроллеры $\pi^h(s_t, B(g))$ сталкиваются с фундаментальной проблемой: единственный вектор интенции $z$ пытается вести агента напрямую сквозь стены в соседние коридоры, вызывая застревание муравья в углах (успешность бейзлайна 78.8\%). В данной работе мы систематически исследуем, формулируем и тестируем три взаимодополняющих подхода, строго соблюдая ограничение на использование только оффлайн-буфера и замороженных представлений $F, B, \pi^\ell$:
 \begin{enumerate}[leftmargin=*,noitemsep]
-    \item \textbf{Topological Graph Planning (\texttt{BufferGraphPlanner})}: Constructs an offline reachability graph $M(s, g) = F(s, B(g))^\top B(g)$ over dataset landmarks and extracts optimal multi-hop paths via Dijkstra's algorithm.
-    \item \textbf{Amortized $O(1)$ Latent Plan Distillation (\texttt{DistilledJAXPlanner})}: Compresses global Dijkstra paths into an end-to-end differentiable Gated Cross-Attention student network trained via JAX/XLA backpropagation through frozen policy $\pi^\ell$ and forward representations $F$, reaching \textbf{85.0 $\pm$ 3.5\%} success rate with \textbf{0.56 ms} inference latency.
-    \item \textbf{Enhanced Sequence-Aware Attention Transformer (\texttt{EnhancedSequencePlanner})}: Incorporates ALiBi distance-decay attention bias ($-\lambda m_h k$), local-global windowing, curvature turn encodings, and auxiliary local anchoring to prevent wall-leakage, achieving State-of-the-Art performance of \textbf{88.0 $\pm$ 5.2\%} across 10 random seeds.
+    \item \textbf{Топологическое графовое планирование (\texttt{BufferGraphPlanner})}: Построение ориентированного графа достижимости $M(s, g) = F(s, B(g))^\top B(g)$ над ориентирами из буфера и поиск кратчайших траекторий Дейкстры.
+    \item \textbf{Амортизированная $O(1)$ дистилляция (\texttt{DistilledJAXPlanner})}: Сжатие вычислений Дейкстры в нейросетевой Gated Cross-Attention модуль, обученный сквозным градиентом JAX через замороженную политику $\pi^\ell$ и $F$, достигающий \textbf{85.0 $\pm$ 3.5\%} успеха при сверхнизкой латентности \textbf{0.56 мс/шаг}.
+    \item \textbf{Улучшенный трансформер внимания над последовательностями (\texttt{EnhancedSequencePlanner})}: Внедрение штрафа внимания ALiBi ($-\lambda m_h k$), локально-глобального окна, токенов кривизны $\cos \theta_k$ и вспомогательного локального лосса, обеспечивающее State-of-the-Art результат \textbf{88.0 $\pm$ 5.2\%} на 10 случайных сидах (500 эпизодов).
 \end{enumerate}
-We provide full mathematical derivations, physical gait analyses of MuJoCo torque control, ablation studies, and comprehensive Q\&A preparation for technical defense.
+Отчет содержит детальный теоретический и физический анализ динамики 8-суставного робота в MuJoCo, графики траекторий до/после, таблицы абляций и ответы на каверзные вопросы для защиты решения.
 \end{abstract}
 
 \input{sections/01_introduction.tex}

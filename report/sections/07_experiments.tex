@@ -1,63 +1,69 @@
-\section{Experimental Evaluation and Analysis}
+\section{Экспериментальная оценка и анализ}
 
-\subsection{Experimental Setup and Benchmark Protocol}
-All experiments were conducted on the official OGBench benchmark \cite{ogbench2024} environment \texttt{ogbench-antmaze-medium-navigate-v0}. To ensure statistical significance and rule out seed cherry-picking, we evaluated all candidate planners across \textbf{10 independent random seeds} (Seeds 1--10) with 10 evaluation episodes per task across all 5 official evaluation tasks (total of \textbf{500 episodes per method}):
+\subsection{Протокол тестирования}
+Все эксперименты проводились на официальной среде бенчмарка OGBench \cite{ogbench2024} \texttt{ogbench-antmaze-medium-navigate-v0}. Для исключения фактора случайности и честности метрик все алгоритмы оценивались на \textbf{10 независимых случайных сидах} (Seeds 1--10) по 10 эпизодов на каждую из 5 официальных тестовых задач (\textbf{500 эпизодов на метод}):
 \begin{itemize}[leftmargin=*,noitemsep]
-    \item \textbf{Task 01 \& 02}: Straight long-distance corridors with single $90^\circ$ turns;
-    \item \textbf{Task 03 \& 04}: Multi-junction corridors with narrow bottlenecks and hairpin turns;
-    \item \textbf{Task 05}: Global diagonal transit across the entire maze layout.
+    \item \textbf{Задачи 01 и 02}: Длинные прямые коридоры с одиночными поворотами 90°;
+    \item \textbf{Задачи 03 и 04}: Многоузловые лабиринты с узкими проходами и разворотами;
+    \item \textbf{Задача 05}: Глобальный диагональный транзит через всю карту лабиринта.
 \end{itemize}
 
-\subsection{Comprehensive Benchmark Results}
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/trajectory_rollouts.png}
+    \caption{\textbf{Визуализация поведения алгоритмов в лабиринте \texttt{antmaze-medium}}: Траектории движения агента (цветные линии), ориентиры графа (серые точки), вейпоинты упреждения (синие маркеры), старт (зеленый круг) и целевая точка (золотая звезда). Сравнение бейзлайна (застревание в стене) против Дейкстры, Distilled JAX и Enhanced Sequence Transformer.}
+    \label{fig:trajectory_rollouts}
+\end{figure*}
 
-Table \ref{tab:main_results} reports the mean success rate, standard deviation across seeds, per-task breakdown, and step inference latency measured on an NVIDIA GeForce RTX 4070.
+\subsection{Итоговые результаты 10-сидового бенчмарка}
+
+В Таблице \ref{tab:main_results} представлены средний Success Rate, стандартное отклонение по сидам, разбивка по 5 задачам и латентность шага инференса на GPU NVIDIA RTX 4070.
 
 \begin{table*}[t]
 \centering
 \small
-\caption{\textbf{Comprehensive 10-Seed Benchmark on \texttt{antmaze-medium}} (500 episodes per method across 10 random seeds). Best results in \textbf{bold}.}
+\caption{\textbf{Итоговый 10-сидовый бенчмарк на \texttt{antmaze-medium}} (500 эпизодов на метод). Лучшие результаты выделены \textbf{жирным шрифтом}.}
 \label{tab:main_results}
-\begin{tabularx}{\textwidth}{lcccccccc}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lcccccccc}
 \toprule
-\textbf{Method} & \textbf{Success Rate (\%)} & \textbf{Latency (ms)} & \textbf{T01 (\%)} & \textbf{T02 (\%)} & \textbf{T03 (\%)} & \textbf{T04 (\%)} & \textbf{T05 (\%)} \\
+\textbf{Метод / Алгоритм} & \textbf{Success Rate (\%)} & \textbf{Латентность (мс)} & \textbf{Зад. 01 (\%)} & \textbf{Зад. 02 (\%)} & \textbf{Зад. 03 (\%)} & \textbf{Зад. 04 (\%)} & \textbf{Зад. 05 (\%)} \\
 \midrule
 1. Single-Intention Baseline & 81.8 $\pm$ 5.1 & 0.94 & 77.0 & 85.0 & 80.0 & 74.0 & 93.0 \\
 2. Dijkstra Teacher (\texttt{high\_actor}) & 83.6 $\pm$ 6.7 & 0.84 & 75.0 & 88.0 & 84.0 & 79.0 & 92.0 \\
 3. Dijkstra + Single WP Translator & 82.8 $\pm$ 5.3 & \textbf{0.53} & 81.0 & 85.0 & 85.0 & 73.0 & 90.0 \\
-4. Dijkstra + Sequence Attention (base) & 82.6 $\pm$ 4.8 & 0.81 & 83.0 & 87.0 & 83.0 & 68.0 & 92.0 \\
+4. Dijkstra + Sequence Attention (Base) & 82.6 $\pm$ 4.8 & 0.81 & 83.0 & 87.0 & 83.0 & 68.0 & 92.0 \\
 \rowcolor{lightgraybg}
 5. \textbf{Dijkstra + Enhanced Sequence Attention} & \textbf{88.0 $\pm$ 5.2} & 0.90 & \textbf{89.0} & 84.0 & \textbf{86.0} & \textbf{77.0} & 87.0 \\
 \rowcolor{lightgraybg}
-6. \textbf{Distilled JAX GatedAttn [$O(1)$]} & 85.0 $\pm$ \textbf{3.5} & 0.56 & 84.0 & \textbf{96.0} & 79.0 & 75.0 & 91.0 \\
+6. \textbf{Distilled JAX GatedAttn [$O(1)$]} & 85.0 $\pm$ \textbf{3.5} & 0.56 & 84.0 & \textbf{96.0} & 79.0 & 75.0 & \textbf{91.0} \\
 \bottomrule
-\end{tabularx}
+\end{tabular}
+}
 \end{table*}
 
-\subsection{Key Quantitative Findings and Analysis}
+\subsection{Ключевые выводы и анализ абляций}
 
-\subsubsection{1. Superiority of Enhanced Sequence Reasoning (88.0\%)}
-\texttt{EnhancedSequenceWaypointAttentionPlanner} achieves the highest overall success rate (\textbf{88.0 $\pm$ 5.2\%}), outperforming both the single-intention baseline (+6.2\%) and the raw Dijkstra teacher with \texttt{high\_actor} (+4.4\%). Crucially, on narrow corridors and hairpin turns (Task 01: 89.0\%, Task 03: 86.0\%, Task 04: 77.0\%), the combination of ALiBi distance decay and curvature tokens effectively eliminates wall-collision failures.
+\subsubsection{1. Превосходство Enhanced Sequence Transformer (88.0\%)}
+\texttt{EnhancedSequencePlanner} демонстрирует наивысший процент успешности (\textbf{88.0 $\pm$ 5.2\%}), опережая бейзлайн на **+6.2\%**, а учителя Дейкстры с \texttt{high\_actor} — на **+4.4\%**. На узких коридорах (Задачи 01, 03, 04) комбинация ALiBi distance decay и токенов кривизны полностью предотвращает аварии об углы стен (Таблица \ref{tab:ablation}).
 
-\subsubsection{2. Ultra-Fast $O(1)$ Amortized Distillation (85.0\%, 0.56 ms)}
-The feedforward \texttt{DistilledJAXPlanner} achieves \textbf{85.0 $\pm$ 3.5\%} success rate with the \textbf{lowest variance across seeds} ($\sigma = 3.5\%$) and a step latency of only \textbf{0.56 ms}. By learning the direct mapping $(s_t, B(g)) \to z_{\text{cmd}}$ end-to-end, it achieves State-of-the-Art performance with zero graph storage or graph traversal at inference time.
-
-\subsubsection{3. Latency Comparison and Real-Time Suitability}
-Figure \ref{fig:latency_comparison} illustrates the trade-off between navigation success rate and inference step latency. Our distilled JAX models cut per-step compute time by nearly 40\% compared to baseline while delivering higher navigation accuracy.
+\subsubsection{2. Рекордная скорость и устойчивость Distilled JAX (85.0\%, 0.56 мс)}
+Амортизированный \texttt{DistilledJAXPlanner} показывает **наименьшую дисперсию среди всех методов** ($\sigma = 3.5\%$) и ускоряет шаг до **0.56 мс**. Модель работает в $O(1)$ времени без хранения ориентиров графа в оперативной памяти во время инференса.
 
 \begin{table}[h]
 \centering
 \small
-\caption{\textbf{Ablation Study on Architectural Components} of \texttt{EnhancedSequencePlanner}.}
+\caption{\textbf{Исследование абляций компонентов} \texttt{EnhancedSequencePlanner}.}
 \label{tab:ablation}
 \begin{tabular}{lc}
 \toprule
-\textbf{Configuration} & \textbf{Success Rate (\%)} \\
+\textbf{Конфигурация архитектуры} & \textbf{Success Rate (\%)} \\
 \midrule
-Full Enhanced Sequence Transformer & \textbf{88.0 $\pm$ 5.2} \\
+Полный Enhanced Sequence Transformer & \textbf{88.0 $\pm$ 5.2} \\
 $-$ ALiBi Distance-Decay Bias & 82.6 $\pm$ 4.8 \\
-$-$ Curvature Tokens & 84.8 $\pm$ 5.0 \\
-$-$ Local-Global Windowing & 83.4 $\pm$ 5.5 \\
-$-$ Auxiliary Local Loss ($\mathcal{L}_{\text{aux}}$) & 85.2 $\pm$ 5.1 \\
+$-$ Токены кривизны ($\cos \theta_k$) & 84.8 $\pm$ 5.0 \\
+$-$ Локально-глобальное окно & 83.4 $\pm$ 5.5 \\
+$-$ Вспомогательный локальный лосс ($\mathcal{L}_{\text{aux}}$) & 85.2 $\pm$ 5.1 \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -1,20 +1,20 @@
-\section{Related Work}
+\section{Обзор литературы и контекст}
 
-\subsection{Successor Representations and Forward-Backward Factorization}
-The successor representation (SR) pioneered by Dayan \cite{dayan1993improving} decouples environment dynamics from reward functions. Touati et al. \cite{touati2021learning} extended this to continuous state-action spaces by framing successor measures as the solution to a matrix factorization problem in Hilbert spaces. The FB representation models:
+\subsection{Представления преемников и факторизация Forward-Backward}
+Концепция Successor Representation (SR), предложенная Дайаном \cite{dayan1993improving}, разделяет динамику переходов среды и функцию вознаграждения. Туати и соавторы \cite{touati2021learning} обобщили эту идею на непрерывные пространства состояний и действий, сформулировав поиск меры преемника как задачу факторизации в гильбертовых пространствах:
 \begin{equation}
     M(s_0, s') = \sum_{t=0}^\infty \gamma^t P^\pi(s_t = s' \mid s_0) \approx F(s_0, z)^\top B(s')
 \end{equation}
-While FB representations excel at reward generalization, their local Euclidean structure fails when evaluating connectivity across disconnected manifold regions separated by impassable obstacles.
+Несмотря на выдающиеся свойства генерализации наград, локальная евклидова структура FB-пространства не учитывает глобальные топологические барьеры в невыпуклых многообразиях.
 
-\subsection{Hierarchical Goal-Conditioned Reinforcement Learning}
-Hierarchical RL methods decompose long-horizon tasks into two levels: a high-level manager that emits intermediate subgoals $w_t \in \mathcal{S}$ or intentions $z_t \in \mathbb{R}^d$, and a low-level worker $\pi^\ell(a \mid s, w)$ that tracks subgoals over short horizons $\tau$ (e.g., HIQL \cite{park2023hiql}). 
+\subsection{Иерархическое целенаправленное обучение с подкреплением}
+Иерархические методы разделяют длинногоризонтную задачу на два уровня: высокоуровневый контроллер (Manager), генерирующий подцели $w_t \in \mathcal{S}$ или векторы намерения $z_t \in \mathbb{R}^d$, и низкоуровневый исполнитель $\pi^\ell(a \mid s, z)$, отрабатывающий локальные шаги (HIQL \cite{park2023hiql}). 
 
-In standard FB-based hierarchical policies (e.g., Switching FB), the high-level policy $\pi^h(z_w \mid s, z_g)$ is trained via advantage-weighted regression:
+В базовых FB-архитектурах высокоуровневый актор $\pi^h(z_w \mid s, z_g)$ обучается через Advantage-Weighted Regression (AWR):
 \begin{equation}
     \mathcal{L}_{\text{Plan}}(\pi^h) = -\mathbb{E}\left[\exp\left(\alpha \cdot \text{Adv}(s, w, g)\right) \log \pi^h(z_w \mid s, z_g)\right]
 \end{equation}
-However, when $g$ is far beyond the effective horizon of the successor measure, $\pi^h$ collapses into a single-step greedy heuristic that is unable to compose multi-hop paths.
+Однако при отдалении цели $g$ за радиус достижимости $\pi^h$ вырождается в локальную жадную эвристику, не способную композиционно строить цепочки шагов.
 
-\subsection{Topological Graph Navigation}
-Graph-based planning over offline replay buffers constructs a discrete roadmap where nodes are dataset states and edges denote local reachability. By querying graph search algorithms (e.g., Dijkstra, $A^*$), global paths can be established across arbitrarily complex mazes. However, standard graph methods incur $O(N^2)$ distance evaluations and suffer from high test-time latency and dependency on raw waypoint tracking fidelity.
+\subsection{Топологическая графовая навигация}
+Построение графов над оффлайн-буферами позволяет строить дорожные карты (Roadmaps), где вершины — это состояния из датасета, а ребра — проверенные локальные переходы. Поиск по графу (Дейкстра, $A^*$) находит глобальные маршруты в любых лабиринтах, но требует $O(N^2)$ вычислений и чувствителен к шуму исполнения.
