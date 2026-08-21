@@ -1,0 +1,7 @@
+Method,Success Rate (%),Latency (ms),Task 01 (%),Task 02 (%),Task 03 (%),Task 04 (%),Task 05 (%)
+1. Single-Intention Baseline,78.8 ± 4.8,0.95,76.0,80.0,72.0,74.0,92.0
+2. Dijkstra Teacher (high_actor),85.2 ± 7.7,0.85,74.0,90.0,84.0,86.0,92.0
+3. Dijkstra + Single WP Translator,85.2 ± 6.0,0.53,86.0,86.0,90.0,76.0,88.0
+4. Dijkstra + Sequence Attention Translator,79.6 ± 4.5,0.81,80.0,82.0,78.0,66.0,92.0
+5. Dijkstra + Enhanced Sequence Attention,88.0 ± 5.2,0.90,96.0,92.0,84.0,78.0,90.0
+6. Distilled JAX GatedAttn [O(1)],85.2 ± 3.0,0.56,82.0,96.0,80.0,76.0,92.0
