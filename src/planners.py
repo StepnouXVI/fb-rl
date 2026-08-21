@@ -455,3 +455,73 @@ class DistilledMLPPlanner(BasePlanner):
         action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), jnp.asarray(pred_z), seed=seed_k, temperature=eval_temp)
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)
+
+
+class DistilledJAXPlanner(BasePlanner):
+    def __init__(
+        self,
+        agent,
+        model_type="gated_attn",
+        checkpoint_path=None,
+        hidden_dim=256,
+        n_layers=3,
+        name=None,
+    ):
+        name = name or f"Distilled JAX ({model_type})"
+        super().__init__(agent, name=name)
+        from src.jax_distillation import build_flax_translator
+        self.student_def = build_flax_translator(
+            model_type=model_type,
+            latent_dim=agent.config["latent_dim"],
+            hidden_dim=hidden_dim,
+            n_layers=n_layers,
+        )
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            import pickle
+            with open(checkpoint_path, "rb") as f:
+                data = pickle.load(f)
+                self.params = flax.core.freeze(data["params"])
+        else:
+            rng = jax.random.PRNGKey(0)
+            dummy_s = jnp.zeros((1, 29))
+            dummy_g = jnp.zeros((1, agent.config["latent_dim"]))
+            self.params = self.student_def.init(rng, dummy_s, dummy_g)["params"]
+
+        self.pos_history = []
+
+        @functools.partial(jax.jit, static_argnames=("temp",))
+        def _fused_step(obs_jnp, goal_jnp, params, seed_k=None, temp=0.0):
+            z_cmd = self.student_def.apply({"params": params}, obs_jnp[None, :], goal_jnp[None, :])[0]
+            act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
+            if temp == 0.0 or seed_k is None:
+                a = act_dist.mode()
+            else:
+                a = act_dist.sample(seed=seed_k)
+            return jnp.clip(a[0], -1.0, 1.0), z_cmd
+
+        self._fused_step = _fused_step
+
+    def reset(self, obs, goal_latent):
+        self.pos_history = []
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
+
+    def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
+        obs_xy = np.asarray(obs[:2])
+        self.pos_history.append(obs_xy.copy())
+        if len(self.pos_history) > 40:
+            self.pos_history.pop(0)
+
+        is_stuck = False
+        if len(self.pos_history) >= 40:
+            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
+                is_stuck = True
+
+        eval_temp = 0.2 if is_stuck else temperature
+        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
+
+        action, pred_z = self._fused_step(
+            jnp.asarray(obs), jnp.asarray(goal_latent), self.params, seed_k, eval_temp
+        )
+        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
+        return np.asarray(action)
+
