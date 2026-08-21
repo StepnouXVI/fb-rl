@@ -118,6 +118,7 @@ def train_jax_distillation(
     l_action: float = 0.5,
     l_reach: float = 0.02,
     l_goal: float = 0.05,
+    use_mlflow: bool = True,
     output_dir: str = "results",
     seed: int = 0,
 ):
@@ -128,6 +129,26 @@ def train_jax_distillation(
 
     os.makedirs(output_dir, exist_ok=True)
     log_file = os.path.join(output_dir, f"train_jax_distill_{model_type}_{split}.log")
+
+    if use_mlflow:
+        try:
+            import mlflow
+            mlflow.set_experiment(f"jax_latent_distillation_{split}")
+            mlflow.start_run(run_name=f"jax_{model_type}_{split}")
+            mlflow.log_params({
+                "model_type": model_type,
+                "split": split,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "lr": lr,
+                "n_pairs": n_pairs,
+                "noise_sigma": noise_sigma,
+                "l_action": l_action,
+                "l_reach": l_reach,
+                "l_goal": l_goal,
+            })
+        except Exception:
+            pass
 
     print(f"Loading pretrained FB agent on {split}...")
     agent, env, train_ds, _, _ = load_pretrained_agent(checkpoint_dir, split, seed=seed)
@@ -237,6 +258,22 @@ def train_jax_distillation(
             lf.write(csv_row)
             lf.flush()
 
+            if use_mlflow:
+                try:
+                    import mlflow
+                    mlflow.log_metrics({
+                        "train_loss": avg_train["loss"],
+                        "train_loss_bc": avg_train["loss_bc"],
+                        "train_loss_action": avg_train["loss_action"],
+                        "train_loss_reach": avg_train["loss_reach"],
+                        "train_loss_goal": avg_train["loss_goal"],
+                        "train_cos_sim": avg_train["cos_sim"],
+                        "val_cos_sim": val_metrics["val_cos_sim"],
+                        "val_action_mse": val_metrics["val_action_mse"],
+                    }, step=epoch)
+                except Exception:
+                    pass
+
             history.append({
                 "epoch": epoch,
                 "train": avg_train,
@@ -250,6 +287,14 @@ def train_jax_distillation(
         import pickle
         pickle.dump({"params": flax.core.unfreeze(params), "model_type": model_type, "config": lambdas}, f)
     print(f"\nDistilled JAX model successfully saved to {save_path}")
+
+    if use_mlflow:
+        try:
+            import mlflow
+            mlflow.log_artifact(save_path)
+            mlflow.end_run()
+        except Exception:
+            pass
 
     # Save history json
     history_file = os.path.join(output_dir, f"history_jax_{model_type}_{split}.json")
@@ -270,6 +315,7 @@ if __name__ == "__main__":
     parser.add_argument("--l_action", type=float, default=0.5)
     parser.add_argument("--l_reach", type=float, default=0.02)
     parser.add_argument("--l_goal", type=float, default=0.05)
+    parser.add_argument("--no_mlflow", action="store_true")
     args = parser.parse_args()
 
     train_jax_distillation(
@@ -282,4 +328,5 @@ if __name__ == "__main__":
         l_action=args.l_action,
         l_reach=args.l_reach,
         l_goal=args.l_goal,
+        use_mlflow=not args.no_mlflow,
     )

@@ -78,9 +78,10 @@ class FlaxDenseECATranslator(nn.Module):
             h_next = nn.LayerNorm()(h_next)
             h_next = nn.gelu(h_next)
 
-            # 1D Channel Attention (ECA) via depthwise-like 1D conv
-            att = nn.Conv(features=1, kernel_size=(3,), padding="SAME", use_bias=False)(h_next[:, :, None])
-            att = nn.sigmoid(att[:, :, 0])
+            # Pure JAX 1D Channel Attention (ECA with k=3)
+            w_eca = self.param(f"eca_w_{len(features)}", nn.initializers.ones, (3,))
+            h_pad = jnp.pad(h_next, ((0, 0), (1, 1)), mode="edge")
+            att = nn.sigmoid(w_eca[0] * h_pad[:, :-2] + w_eca[1] * h_pad[:, 1:-1] + w_eca[2] * h_pad[:, 2:])
             h_next = h_next * att
             features.append(h_next)
 

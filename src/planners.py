@@ -3,6 +3,7 @@ import functools
 import numpy as np
 import jax
 import jax.numpy as jnp
+import flax
 from scipy.sparse.csgraph import dijkstra
 import torch
 import torch.nn as nn
@@ -501,7 +502,7 @@ class DistilledJAXPlanner(BasePlanner):
 
         self._fused_step = _fused_step
 
-    def reset(self, obs, goal_latent):
+    def reset(self, obs=None, goal_latent=None):
         self.pos_history = []
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
 
