@@ -18,7 +18,6 @@ from src.planners import (
     BaselinePlanner,
     BufferGraphPlanner,
     WaypointTranslatorPlanner,
-    SequenceWaypointAttentionPlanner,
     EnhancedSequenceWaypointAttentionPlanner,
     DistilledJAXPlanner,
 )
@@ -43,7 +42,10 @@ def run_comprehensive_benchmark(
     print("=" * 90)
 
     # 1. Load agent and environment
-    agent, env, train_ds, val_ds, config = load_pretrained_agent(checkpoint_dir, split, seed=seeds[0])
+    max_episode_steps = 1500 if split in ["large", "giant"] else 1000
+    agent, env, train_ds, val_ds, config = load_pretrained_agent(
+        checkpoint_dir, split, seed=seeds[0], max_episode_steps=max_episode_steps
+    )
     train_obs = train_ds["observations"]
 
     # 2. Setup Evaluator with full train_ds for accurate zero-shot goal inference
@@ -53,6 +55,7 @@ def run_comprehensive_benchmark(
         dataset_dict=train_ds,
         config=config,
         env_name=f"ogbench-antmaze-{split}-navigate-v0",
+        max_episode_steps=max_episode_steps,
     )
 
     # 3. Instantiate Candidate Planners
@@ -112,24 +115,7 @@ def run_comprehensive_benchmark(
     else:
         print(f"[Warning] single_wp checkpoint not found at {single_wp_ckpt}")
 
-    # 4. Dijkstra + Sequence-Aware Attention Translator
-    if os.path.exists(seq_attn_ckpt):
-        planners.append(
-            SequenceWaypointAttentionPlanner(
-                agent=agent,
-                dataset_observations=train_obs,
-                checkpoint_path=seq_attn_ckpt,
-                n_landmarks=n_landmarks,
-                hidden_dim=384,
-                num_heads=6,
-                n_layers=4,
-                max_seq_len=16,
-                lookahead_dist=2.6,
-                name="4. Dijkstra + Sequence Attention Translator",
-            )
-        )
-    else:
-        print(f"[Warning] seq_attn checkpoint not found at {seq_attn_ckpt}")
+
 
     # 5. Dijkstra + Enhanced Sequence-Aware Attention Translator
     if os.path.exists(enhanced_seq_ckpt):
@@ -215,13 +201,25 @@ def run_comprehensive_benchmark(
     md_path = os.path.join(output_dir, f"benchmark_summary_10seeds_{split}.md")
 
     df_summary.to_csv(csv_path, index=False)
+    try:
+        md_content = df_summary.to_markdown(index=False)
+    except Exception:
+        # Fallback markdown table generator
+        headers = list(df_summary.columns)
+        rows = [list(df_summary.iloc[i].astype(str)) for i in range(len(df_summary))]
+        col_widths = [max(len(h), max((len(r[c]) for r in rows), default=0)) for c, h in enumerate(headers)]
+        h_line = "| " + " | ".join(h.ljust(col_widths[c]) for c, h in enumerate(headers)) + " |"
+        sep_line = "| " + " | ".join("-" * col_widths[c] for c in range(len(headers))) + " |"
+        row_lines = ["| " + " | ".join(r[c].ljust(col_widths[c]) for c in range(len(headers))) + " |" for r in rows]
+        md_content = "\n".join([h_line, sep_line] + row_lines)
+
     with open(md_path, "w") as f:
-        f.write(df_summary.to_markdown(index=False))
+        f.write(md_content)
 
     print("\n" + "=" * 90)
-    print("=== FINAL 10-SEED BENCHMARK SUMMARY TABLE ===")
+    print("=== FINAL BENCHMARK SUMMARY TABLE ===")
     print("=" * 90)
-    print(df_summary.to_markdown(index=False))
+    print(md_content)
     print(f"\nSaved summary to {csv_path} and {md_path}")
 
     return df_summary

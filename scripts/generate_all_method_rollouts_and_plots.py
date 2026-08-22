@@ -40,7 +40,10 @@ def main():
     print("=" * 80)
 
     # 1. Load Agent & Environment
-    agent, env, train_ds, _, config = load_pretrained_agent(args.checkpoint_dir, split, seed=args.seeds[0])
+    max_episode_steps = 1500 if split in ["large", "giant"] else 1000
+    agent, env, train_ds, _, config = load_pretrained_agent(
+        args.checkpoint_dir, split, seed=args.seeds[0], max_episode_steps=max_episode_steps
+    )
     train_obs = train_ds["observations"]
 
     evaluator = ZeroShotEvaluator(
@@ -49,6 +52,7 @@ def main():
         dataset_dict=train_ds,
         config=config,
         env_name=f"ogbench-antmaze-{split}-navigate-v0",
+        max_episode_steps=max_episode_steps,
     )
 
     # 2. Checkpoints
