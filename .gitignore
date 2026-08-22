@@ -52,3 +52,8 @@ multirun/
 .DS_Store
 .vscode/
 .idea/
+
+# Large result dumps
+results/*.csv
+results/*.npz
+!results/benchmarks/*.csv

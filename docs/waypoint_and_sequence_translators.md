@@ -51,3 +51,15 @@ where:
 - $\pi^\ell$ is the frozen low-level policy
 - $F(s, z)$ is the frozen forward reachability representation
 - $\nabla_\theta$ flows directly through $\pi^\ell$ and $F$ without approximations.
+
+---
+
+## 5. Robust Online Execution Mechanics (`EnhancedSequenceWaypointAttentionPlanner`)
+
+During closed-loop rollout in complex environments (`antmaze-medium` and `antmaze-large`), the planner incorporates five critical execution mechanisms:
+1. **Local Anti-Jump Window Tracking**: The current path index advances within a strictly bounded local neighborhood $[i - 2, i + 5]$, preventing Euclidean shortcut jumps across thin partition walls into parallel corridors.
+2. **Dynamic Off-Track Re-Routing**: If external perturbation or collision causes deviation from the planned path ($d(s_t, \mathcal{P}) > 4.8\text{ m}$), the planner resets and computes a fresh Dijkstra trajectory from the current agent location.
+3. **Graph Connectivity Safeguard**: Start and goal landmarks are selected from the top-15 Euclidean and top-15 cosine similarity candidates to guarantee a finite Dijkstra path ($\text{dist}(s, g) < \infty$), eliminating straight-line fallbacks through obstacle geometry.
+4. **Curvature-Aware Multi-Waypoint Conditioning**: Slices valid lookahead horizons without terminal coordinate duplication, providing clean continuous $\cos \theta_k$ angle features for geometric turn negotiation.
+5. **Adaptive Stagnation Breakout**: When displacement is $< 0.40\text{ m}$ over a 40-step window, the low-level actor samples with exploratory temperature $\tau = 0.25$ to overcome wall friction and navigate sharp 90-degree corners.
+

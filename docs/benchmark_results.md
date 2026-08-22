@@ -90,3 +90,25 @@ Graph      +-------------------------------------------------------------+
    - Online Per-Step Sliding Lookahead & JIT Actor: $2.17\text{ ms/step}$.
 
 Both approaches operate well within real-time control limits ($50\text{ Hz} = 20\text{ ms/step}$).
+
+---
+
+## 5. Large Maze Comprehensive 10-Seed Benchmark (`ogbench-antmaze-large-navigate-v0`)
+
+Evaluation was conducted on the $24 \times 24\text{ m}$ environment with $T_{\max} = 1500$ steps across **10 independent seeds** (Seeds 1--10) with **20 evaluation episodes per task** (**1000 episodes per method across 5 tasks**):
+
+### 5.1. Aggregate Summary Table
+
+| Method | Success Rate (%) | Latency (ms) | Task 01 (%) | Task 02 (%) | Task 03 (%) | Task 04 (%) | Task 05 (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1. Single-Intention Baseline** | 49.3 ± 3.6 | 0.95 | 43.5 | 54.5 | **82.0** | 32.5 | 34.0 |
+| **2. Dijkstra Teacher (`high_actor`)** | 46.8 ± 4.7 | 0.87 | 48.0 | 65.0 | 59.5 | 27.5 | 34.0 |
+| **3. Dijkstra + Single WP Translator** | 48.2 ± 5.0 | **0.54** | 43.0 | 71.0 | 53.5 | 31.5 | 42.0 |
+| **5. Dijkstra + Enhanced Sequence Attention** | **64.3 ± 4.9** | 0.95 | **56.5** | **75.0** | 77.0 | **54.0** | **59.0** |
+| **6. Distilled JAX GatedAttn [$O(1)$]** | 47.4 ± 4.2 | 0.57 | 55.5 | 74.5 | 51.0 | 22.5 | 33.5 |
+
+### 5.2. Key Discoveries and Algorithmic Fixes on Large Maze
+1. **Wall-Jumping Elimination**: A wide forward search window (`current_path_idx + 12`) previously jumped across thin walls into parallel corridors. Constraining the tracking window to $[i - 2, i + 5]$ with dynamic re-routing eliminates false corridor switches.
+2. **Dijkstra Connectivity Guarantee**: Validating $\text{dist}(s, g) < \infty$ among top start/goal candidates prevents fallback to straight lines through walls.
+3. **Corner Stagnation Breakout**: Adaptive exploratory temperature ($\tau = 0.25$) when position displacement $< 0.40\text{ m}$ over 40 steps breaks wall friction around sharp bends.
+4. **Substantial Gains on Complex Forks**: Enhanced Sequence Attention achieved **54.0%** on Task 4 (vs. 27.5% for Teacher, 32.5% for Baseline) and **59.0%** on Task 5 (vs. 34.0% for Teacher/Baseline), reaching an overall **64.3%** success rate.
