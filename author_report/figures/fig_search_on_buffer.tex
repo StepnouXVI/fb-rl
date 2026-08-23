@@ -2,7 +2,7 @@
 \begin{tikzpicture}[>=latex, font=\sffamily, scale=0.49, every node/.style={transform shape}]
 
     % -------------------------------------------------------------
-    % Стили элементов диаграммы (согласованы с палитрой отчета)
+    % Стили элементов диаграммы
     % -------------------------------------------------------------
     \tikzset{
         mazebg/.style={draw=none, fill=gray!6, rounded corners=2pt},
@@ -12,8 +12,6 @@
         samplenode_faded/.style={draw=black!30, fill=yellow!45, rectangle, inner sep=1.8pt, rounded corners=0.5pt, line width=0.4pt},
         startnode/.style={circle, fill=black, inner sep=2.5pt},
         goalnode/.style={star, star points=5, star point ratio=2.25, fill=black, draw=black, inner sep=2.3pt},
-        agentnode/.style={circle, fill=green!70!black, draw=black!90, line width=0.8pt, inner sep=2.8pt},
-        lookaheadnode/.style={circle, fill=purple!80!black, draw=black!90, line width=0.8pt, inner sep=2.3pt},
         candidateline/.style={draw=black!55, line width=0.85pt},
         fadedline/.style={draw=black!20, line width=0.6pt},
         filteredline/.style={draw=red!80!black, dashed, line width=1.2pt},
@@ -42,36 +40,11 @@
         \draw[mazewall] (3.5, 5.5) rectangle (4.5, 6.5);
     }
 
-    % Концентрические изолинии FB-поля цели
-    \newcommand{\drawFBFieldGoal}[2]{
-        \begin{scope}
-            \clip (0.5, 0.5) rectangle (6.5, 6.5);
-            \fill[green!45!teal, opacity=0.12] (#1, #2) circle (2.2);
-            \fill[green!50!teal, opacity=0.18] (#1, #2) circle (1.7);
-            \fill[green!58!teal, opacity=0.26] (#1, #2) circle (1.25);
-            \fill[green!65!black, opacity=0.36] (#1, #2) circle (0.85);
-            \fill[green!75!black, opacity=0.50] (#1, #2) circle (0.50);
-            \fill[green!85!black, opacity=0.68] (#1, #2) circle (0.24);
-        \end{scope}
-    }
-
-    % Концентрические поля вокруг сэмплированных точек
-    \newcommand{\drawFBFieldNode}[2]{
-        \begin{scope}
-            \clip (0.5, 0.5) rectangle (6.5, 6.5);
-            \fill[green!45!teal, opacity=0.14] (#1, #2) circle (1.1);
-            \fill[green!55!teal, opacity=0.22] (#1, #2) circle (0.75);
-            \fill[green!65!black, opacity=0.34] (#1, #2) circle (0.45);
-            \fill[green!75!black, opacity=0.50] (#1, #2) circle (0.20);
-        \end{scope}
-    }
-
     % =============================================================
-    % ПАНЕЛЬ (a): Старт, Цель и FB-поле цели
+    % ПАНЕЛЬ (a): Старт и Цель
     % =============================================================
     \begin{scope}[shift={(0,0)}]
         \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
-        \drawFBFieldGoal{5.9}{5.9}
         \drawMediumWalls
         \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
         
@@ -81,33 +54,14 @@
         \node[goalnode] (G_a) at (5.9, 5.9) {};
         \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
         
-        \node[subcaption] at (3.5, -0.65) {(a) Старт $s_0$ и цель $g$\\с FB-полем $B(g)$};
+        \node[subcaption] at (3.5, -0.65) {(a) Старт $s_0$ и цель $g$};
     \end{scope}
 
     % =============================================================
-    % ПАНЕЛЬ (b): Сэмплирование точек буфера с FB-окрестностями
+    % ПАНЕЛЬ (b): Сэмплирование точек буфера
     % =============================================================
     \begin{scope}[shift={(7.3, 0)}]
         \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
-
-        \drawFBFieldGoal{5.9}{5.9}
-        \drawFBFieldNode{1.1}{1.1}
-        \drawFBFieldNode{1.1}{2.0}
-        \drawFBFieldNode{2.0}{1.1}
-        \drawFBFieldNode{2.0}{2.0}
-        \drawFBFieldNode{2.0}{3.0}
-        \drawFBFieldNode{3.0}{3.0}
-        \drawFBFieldNode{4.0}{3.0}
-        \drawFBFieldNode{5.0}{2.0}
-        \drawFBFieldNode{6.0}{1.2}
-        \drawFBFieldNode{1.2}{4.5}
-        \drawFBFieldNode{1.2}{5.8}
-        \drawFBFieldNode{2.8}{6.0}
-        \drawFBFieldNode{3.8}{5.0}
-        \drawFBFieldNode{4.2}{4.2}
-        \drawFBFieldNode{5.8}{4.2}
-        \drawFBFieldNode{6.0}{5.1}
-
         \drawMediumWalls
         \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
         
@@ -140,7 +94,6 @@
     % =============================================================
     \begin{scope}[shift={(14.6, 0)}]
         \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
-        \drawFBFieldNode{5.9}{5.9}
         \drawMediumWalls
         \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
         
@@ -280,7 +233,7 @@
     \end{scope}
 
     % =============================================================
-    % ПАНЕЛЬ (e): Кратчайший путь Дейкстры и Sliding Lookahead
+    % ПАНЕЛЬ (e): Маршрут Дейкстры
     % =============================================================
     \begin{scope}[shift={(29.2, 0)}]
         \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
@@ -315,7 +268,7 @@
         \draw[fadedline] (n11) -- (n12);
         \draw[fadedline] (n12) -- (n13);
 
-        % Найденный кратчайший путь Дейкстры (аккуратный маршрут по коридору)
+        % Найденный кратчайший путь Дейкстры
         \draw[patharrow] (s) -- (n1);
         \draw[patharrow] (n1) -- (n3);
         \draw[patharrow] (n3) -- (n4);
@@ -335,22 +288,12 @@
             \node[samplenode] at (\pt) {};
         }
 
-        % Текущее положение агента s_t и вейпоинт Sliding Lookahead
-        \node[agentnode, label={[text=green!60!black, font=\scriptsize\bfseries]left:$s_t$}] (A) at (3.0, 3.0) {};
-        \node[lookaheadnode, label={[text=purple!80!black, font=\scriptsize\bfseries]above left:$w_{\text{la}}$}] (W) at (5.8, 4.2) {};
-
-        % Вектор интенции агента (направление к упреждению)
-        \draw[->, line width=2.0pt, blue!90!black] (A) -- (W);
-        % Дуга упреждения L = 2.6 м
-        \draw[<->, dashed, purple!85!black, line width=1.1pt] (A) to[bend right=32] node[midway, below right, font=\tiny\bfseries, fill=white, inner sep=1.2pt] {$L = 2.6\,\text{м}$} (W);
-
         \node[startnode] at (s) {};
         \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
         \node[goalnode] at (g) {};
         \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
 
-        \node[subcaption] at (3.5, -0.65) {(e) Путь Дейкстры и\\Sliding Lookahead};
+        \node[subcaption] at (3.5, -0.65) {(e) Итоговый путь Дейкстры\\$\mathcal{P}^* = [s_0, v_1, \dots, g]$};
     \end{scope}
 
 \end{tikzpicture}
-

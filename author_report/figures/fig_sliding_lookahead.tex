@@ -1,0 +1,104 @@
+%!TEX root = ../main.tex
+\begin{tikzpicture}[>=latex, font=\sffamily, scale=0.53, every node/.style={transform shape}]
+
+    % -------------------------------------------------------------
+    % Стили элементов
+    % -------------------------------------------------------------
+    \tikzset{
+        wallblock/.style={draw=black!85, fill=gray!30, line width=1.0pt, rounded corners=2pt},
+        waypoint/.style={draw=black!90, fill=yellow!95!orange, rectangle, inner sep=2.5pt, rounded corners=0.6pt, line width=0.7pt},
+        agentnode/.style={circle, fill=green!70!black, draw=black!90, line width=0.9pt, inner sep=3.0pt},
+        lookaheadnode/.style={circle, fill=purple!85!black, draw=black!90, line width=0.9pt, inner sep=2.6pt},
+        directcmd/.style={draw=blue!85!black, -{Latex[length=4.8pt, width=3.2pt]}, line width=1.8pt},
+        badtraj/.style={draw=red!80!black, dashed, line width=1.3pt},
+        goodtraj/.style={draw=green!60!black, line width=1.6pt, -{Latex[length=4.5pt, width=3.0pt]}},
+        subcap/.style={font=\small\bfseries, align=center, text=black!90}
+    }
+
+    % =============================================================
+    % ЛЕВАЯ ЧАСТЬ (а): Дискретное ведение на ближайший вейпоинт (Бейзлайн)
+    % =============================================================
+    \begin{scope}[shift={(0,0)}]
+        % Коридор Г-образного поворота
+        \draw[thick, fill=gray!5] (-0.5, -0.5) rectangle (6.5, 4.5);
+        
+        % Стены коридора
+        \draw[wallblock] (-0.5, 1.8) rectangle (3.8, 4.5);
+        \draw[wallblock] (5.2, -0.5) rectangle (6.5, 4.5);
+        \draw[wallblock] (-0.5, -0.5) rectangle (3.8, 0.2);
+
+        % Дискретный путь по вейпоинтам
+        \coordinate (w1) at (0.5, 1.0);
+        \coordinate (w2) at (2.2, 1.0);
+        \coordinate (w_corner) at (4.5, 1.0);
+        \coordinate (w3) at (4.5, 2.8);
+        \coordinate (w4) at (4.5, 4.0);
+
+        \draw[draw=black!35, dashed, line width=0.8pt] (w1) -- (w2) -- (w_corner) -- (w3) -- (w4);
+
+        % Вейпоинты
+        \node[waypoint, label={[font=\scriptsize]below:$w_k$}] at (w2) {};
+        \node[waypoint, label={[font=\scriptsize, text=red!80!black]below right:$w_{k+1}$ (угол)}] (Wc) at (w_corner) {};
+        \node[waypoint, label={[font=\scriptsize]right:$w_{k+2}$}] at (w3) {};
+
+        % Агент
+        \coordinate (agent_pos) at (2.7, 1.0);
+        \node[agentnode, label={[font=\scriptsize\bfseries, text=green!60!black]above:$s_t$}] (A1) at (agent_pos) {};
+
+        % Вектор интенции (прямо в угол)
+        \draw[directcmd] (A1) -- (Wc) node[midway, above, font=\tiny\bfseries, text=blue!85!black] {$\hat{z} \to w_{k+1}$};
+
+        % Проблемная траектория с инерцией и торможением
+        \draw[badtraj] (0.5, 1.0) -- (2.7, 1.0) -- (4.2, 1.0) to[out=0, in=-90] (4.8, 1.5) to[out=90, in=0] (4.5, 2.2) to[out=180, in=-90] (4.1, 2.8) -- (4.5, 3.8);
+        
+        % Метка срыва
+        \node[cross out, draw=red!90!black, line width=1.5pt, minimum size=8pt] at (4.8, 1.5) {};
+        \node[fill=red!10, draw=red!70, rounded corners=2pt, inner sep=2pt, font=\tiny\bfseries, text=red!90!black, align=center] at (1.8, 2.8) {Резкое торможение,\\срыв походки и петля};
+
+        \node[subcap] at (3.0, -1.0) {а) Дискретное ведение (Бейзлайн)\\Взгляд строго на ближайший $w_{k+1}$};
+    \end{scope}
+
+    % =============================================================
+    % ПРАВАЯ ЧАСТЬ (б): Непрерывный Sliding Lookahead (Наш метод)
+    % =============================================================
+    \begin{scope}[shift={(7.8,0)}]
+        % Коридор Г-образного поворота
+        \draw[thick, fill=gray!5] (-0.5, -0.5) rectangle (6.5, 4.5);
+        
+        % Стены коридора
+        \draw[wallblock] (-0.5, 1.8) rectangle (3.8, 4.5);
+        \draw[wallblock] (5.2, -0.5) rectangle (6.5, 4.5);
+        \draw[wallblock] (-0.5, -0.5) rectangle (3.8, 0.2);
+
+        % Базовая линия пути
+        \draw[draw=black!25, dashed, line width=0.8pt] (0.5, 1.0) -- (2.2, 1.0) -- (4.5, 1.0) -- (4.5, 2.8) -- (4.5, 4.0);
+
+        % Вейпоинты
+        \node[waypoint, opacity=0.5] at (2.2, 1.0) {};
+        \node[waypoint, opacity=0.5] at (4.5, 1.0) {};
+        \node[waypoint, opacity=0.5] at (4.5, 2.8) {};
+
+        % Агент
+        \coordinate (agent_pos2) at (2.7, 1.0);
+        \node[agentnode, label={[font=\scriptsize\bfseries, text=green!60!black]below:$s_t$}] (A2) at (agent_pos2) {};
+
+        % Точка Lookahead на 2.6м вперед вдоль пути (уже за поворотом!)
+        \coordinate (w_la) at (4.5, 2.5);
+        \node[lookaheadnode, label={[font=\scriptsize\bfseries, text=purple!85!black]right:$w_{\text{lookahead}}$}] (Wla) at (w_la) {};
+
+        % Вектор интенции (срезает угол по дуге)
+        \draw[directcmd] (A2) -- (Wla) node[midway, above left=-1pt, font=\tiny\bfseries, text=blue!85!black] {$\hat{z} = B(w_{\text{la}})$};
+
+        % Дуга упреждения L = 2.6 м
+        \draw[<->, dashed, purple!85!black, line width=1.1pt] (A2) to[bend right=32] node[midway, below right=-1pt, font=\tiny\bfseries, fill=white, inner sep=1.2pt, text=purple!90!black] {$L = 2.6\,\text{м}$} (Wla);
+
+        % Плавная траектория движения агента
+        \draw[goodtraj] (0.5, 1.0) -- (2.7, 1.0) to[out=0, in=-90] (4.5, 2.8) -- (4.5, 4.0);
+
+        % Метка стабильности
+        \node[fill=green!15, draw=green!70!black, rounded corners=2pt, inner sep=2pt, font=\tiny\bfseries, text=green!60!black, align=center] at (1.8, 2.8) {Плавная дуга поворота,\\сохранение импульса};
+
+        \node[subcap] at (3.0, -1.0) {б) Скользящее упреждение (Sliding Lookahead)\\Взгляд на $L = 2.6\,\text{м}$ вперед по сплайну пути};
+    \end{scope}
+
+\end{tikzpicture}
