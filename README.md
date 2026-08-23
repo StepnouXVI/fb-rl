@@ -191,12 +191,12 @@ fb-rl/
 │   ├── experiments/               # Intention & low-level physics plots
 │   └── plots/                     # Publication comparison figures
 ├── scripts/                       # Modular CLI & training execution scripts (<50 lines/fn)
-│   ├── benchmark_translators.py   # 10-seed multi-task benchmark runner
+│   ├── benchmark_translators.py   # Multi-seed multi-task benchmark runner
 │   ├── experiment_intention.py    # Multi-scenario intention testing
 │   ├── experiment_lowlevel_control.py # 8-joint torque physics controller analysis
 │   ├── generate_all_method_rollouts_and_plots.py # Batch trajectory renderer
 │   ├── generate_plots.py          # Summary Pareto and bar charts
-│   ├── run_benchmark.py           # Parallel multi-process benchmark
+│   ├── run_sequential_benchmarks.sh # Master unattended benchmark runner
 │   ├── train_jax_distillation.py  # JAX/Flax differentiable distillation trainer
 │   ├── train_waypoint_translators.py # Hydra-based translator trainer
 │   └── visualize_trajectories.py  # 2D AntMaze trajectory & portal visualizer
