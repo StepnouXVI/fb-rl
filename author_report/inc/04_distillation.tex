@@ -10,46 +10,40 @@
 
 Для обучения сети был собран датасет из 50~000 пар $(s_t, B(g)) \to z^*_{\text{teacher}}$, сгенерированных учителем. Чтобы сеть не просто копировала векторы (Behavior Cloning), но и учитывала физику робота и геометрию FB-пространства, я разработал 4-компонентный дифференцируемый лосс:
 \addequation{
-    \mathcal{L}(\theta) = \mathcal{L}_{\text{BC}}(\hat{z}, z^*) + 0.5 \cdot \mathcal{L}_{\text{Action}}(\hat{z}) - 0.02 \cdot \mathcal{L}_{\text{Reach}}(\hat{z}) - 0.05 \cdot \mathcal{L}_{\text{Goal}}(\hat{z}),
+    \mathcal{L}(\theta) = \mathcal{L}_{\text{BC}} + 0.5 \mathcal{L}_{\text{Action}} - 0.02 \mathcal{L}_{\text{Reach}} - 0.05 \mathcal{L}_{\text{Goal}},
 }{eq:distillation_loss}
 где компоненты выполняют следующие физические функции:
-\begin{itemize}
+\begin{itemize}[leftmargin=*,noitemsep]
     \item $\mathcal{L}_{\text{BC}} = (1 - \cos(\hat{z}, z^*)) + \text{MSE}(\hat{z}, z^*)$ — имитация направления вектора учителя.
     \item $\mathcal{L}_{\text{Action}} = \|\pi^\ell(s_t, \hat{z}) - a^*_{\text{teacher}}\|^2$ — прямое согласование действий в пространстве моторов (продифференцировано сквозь замороженную $\pi^\ell$).
     \item $\mathcal{L}_{\text{Reach}} = F(s_t, \hat{z})^\top \hat{z}$ — штраф за выбор недостижимых латентных направлений.
     \item $\mathcal{L}_{\text{Goal}} = \hat{z}^\top B(g)$ — глобальное притяжение к терминальной цели.
 \end{itemize}
 
-\begin{figure}[H]
+\begin{figure*}[t]
     \centering
     \input{figures/fig_distilled_jax.tex}
-    \caption{Архитектура амортизированного планировщика Distilled JAX Gated-Attention.}
+    \caption{Архитектура амортизированного планировщика Distilled JAX Gated-Attention с дифференцируемым лоссом в $O(1)$.}
     \label{fig:distilled_jax}
-\end{figure}
+\end{figure*}
 
-\subsection{Исследование нейросетевых архитектур (Ablation Study)}
+\subsection{Исследование нейросетевых архитектур}
 
-В рамках дистилляции было исследовано 4 архитектурных решения:
-\begin{enumerate}
-    \item \textbf{Standard MLP}: 4-слойный перцептрон с LayerNorm и GELU.
-    \item \textbf{ResNet-ECA}: остаточные блоки с эффективным одномерным канальным вниманием (1D ECA).
-    \item \textbf{Dense-ECA}: конкатенация признаков с плотными связями (DenseNet).
-    \item \textbf{Gated Cross-Attention}: раздельные энкодеры состояния и цели с механизмом перекрестного внимания и управляемым мультипликативным гейтом (SwiGLU).
-\end{enumerate}
+В рамках дистилляции было исследовано 4 архитектурных решения: Standard MLP, ResNet-ECA (1D-канальное внимание), Dense-ECA и Gated Cross-Attention со SwiGLU.
 
 \begin{table}[H]
     \centering
-    \small
-    \caption{Сравнение архитектур дистилляции на задаче AntMaze Medium}
+    \footnotesize
+    \caption{Сравнение архитектур дистилляции на Medium}
     \label{tab:arch_comparison}
     \begin{tabular}{lcccc}
         \toprule
-        \textbf{Архитектура} & \textbf{Число параметров} & \textbf{Val Cos-Sim} & \textbf{Success Rate (\%)} & \textbf{Инференс (мс/шаг)} \\
+        \textbf{Архитектура} & \textbf{Парам.} & \textbf{Cos-Sim} & \textbf{SR (\%)} & \textbf{Время} \\
         \midrule
-        Standard MLP & 312K & 0.891 & 78.0\% & 0.12 \\
-        Dense-ECA & 458K & 0.914 & 82.0\% & 0.16 \\
-        ResNet-ECA & 524K & 0.908 & 80.0\% & 0.15 \\
-        \textbf{Gated Cross-Attention} & \textbf{680K} & \textbf{0.942} & \textbf{86.0\%} & \textbf{0.18} \\
+        Standard MLP & 312K & 0.891 & 78.0\% & 0.12 мс \\
+        Dense-ECA & 458K & 0.914 & 82.0\% & 0.16 мс \\
+        ResNet-ECA & 524K & 0.908 & 80.0\% & 0.15 мс \\
+        \textbf{Gated Cross-Attn} & \textbf{680K} & \textbf{0.942} & \textbf{86.0\%} & \textbf{0.18 мс} \\
         \bottomrule
     \end{tabular}
 \end{table}

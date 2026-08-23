@@ -1,37 +1,35 @@
-\begin{tikzpicture}[>=stealth, font=\small, scale=0.92, every node/.style={transform shape}]
-    % Граф ориентиров
-    \draw[thick, fill=blue!3] (0,0) rectangle (7.5,4);
+\begin{tikzpicture}[>=stealth, font=\scriptsize, scale=0.72, every node/.style={transform shape}]
+    \draw[thick, fill=blue!3] (0,0) rectangle (6.8,3.4);
     
     % Стена лабиринта
-    \draw[ultra thick, line width=4pt, red!70!black] (3.6, 0.6) -- (3.6, 3.4);
-    \node[font=\footnotesize\bfseries, red!70!black] at (3.6, 3.65) {Стена};
+    \draw[ultra thick, line width=3pt, red!70!black] (3.3, 0.4) -- (3.3, 2.9);
+    \node[font=\tiny\bfseries, red!70!black] at (3.3, 3.1) {Стена};
     
-    % Узлы графа (Landmarks)
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n1) at (0.8, 1.0) {};
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n2) at (1.2, 2.8) {};
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n3) at (2.4, 3.2) {};
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n4) at (4.8, 3.2) {};
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n5) at (6.0, 2.8) {};
-    \node[circle, fill=blue!60!black, inner sep=2pt] (n6) at (6.4, 1.0) {};
+    % Узлы графа
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n1) at (0.6, 0.8) {};
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n2) at (1.0, 2.4) {};
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n3) at (2.2, 2.7) {};
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n4) at (4.4, 2.7) {};
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n5) at (5.5, 2.4) {};
+    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n6) at (5.9, 0.8) {};
     
-    % Ребра графа
+    % Ребра
     \draw[->, thick, gray!60] (n1) -- (n2);
     \draw[->, thick, gray!60] (n2) -- (n3);
     \draw[->, thick, gray!60] (n3) -- (n4);
     \draw[->, thick, gray!60] (n4) -- (n5);
     \draw[->, thick, gray!60] (n5) -- (n6);
     
-    % Недействительное ребро сквозь стену
     \draw[->, thick, dashed, red!60] (n1) -- (n6);
-    \node[font=\tiny, fill=white, text=red!80!black] at (3.6, 1.0) {$c=\infty$ (отфильтровано)};
+    \node[font=\tiny, fill=white, text=red!80!black] at (3.3, 0.8) {$c=\infty$};
     
     % Агент и Sliding Lookahead
-    \node[circle, fill=green!70!black, inner sep=3pt, label=below:{\footnotesize Муравей $s_t$}] (A) at (1.6, 2.2) {};
-    \node[circle, fill=purple!80!black, inner sep=2.5pt, label=above:{\footnotesize Скользящий вейпоинт $w_{\text{lookahead}}$}] (W) at (2.4, 3.2) {};
+    \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\tiny $s_t$}] (A) at (1.4, 1.8) {};
+    \node[circle, fill=purple!80!black, inner sep=2pt, label=above:{\tiny $w_{\text{lookahead}}$}] (W) at (2.2, 2.7) {};
     
     \draw[->, ultra thick, blue!80!black] (A) -- (W);
-    \draw[<->, thick, dashed, purple!80!black] (A) to[bend right=25] node[midway, below, font=\scriptsize] {$L_{\text{lookahead}} = 2.6\,\text{м}$} (W);
+    \draw[<->, thick, dashed, purple!80!black] (A) to[bend right=25] node[midway, below, font=\tiny] {$L = 2.6\,\text{м}$} (W);
     
-    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2.5pt, label=below:{\footnotesize Цель $g$}] (G) at (6.8, 0.8) {};
+    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2pt, label=below:{\tiny $g$}] (G) at (6.3, 0.6) {};
     \draw[->, thick, gray!60] (n6) -- (G);
 \end{tikzpicture}

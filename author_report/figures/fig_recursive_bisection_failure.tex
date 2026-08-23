@@ -1,24 +1,22 @@
-\begin{tikzpicture}[>=stealth, font=\small, scale=0.95, every node/.style={transform shape}]
-    % Лабиринт с U-образным тупиком
-    \draw[thick, fill=gray!10] (0,0) rectangle (7,4);
+\begin{tikzpicture}[>=stealth, font=\scriptsize, scale=0.72, every node/.style={transform shape}]
+    \draw[thick, fill=gray!10] (0,0) rectangle (6.5,3.4);
     
     % U-образная стена
-    \draw[ultra thick, line width=3.5pt, red!70!black] (2.2, 0.8) -- (2.2, 3.2) -- (4.8, 3.2) -- (4.8, 0.8);
-    \node[font=\footnotesize\bfseries, red!70!black] at (3.5, 3.45) {U-образное препятствие};
+    \draw[ultra thick, line width=2.8pt, red!70!black] (2.0, 0.6) -- (2.0, 2.6) -- (4.4, 2.6) -- (4.4, 0.6);
+    \node[font=\tiny\bfseries, red!70!black] at (3.2, 2.85) {U-образный тупик};
     
     % Точки
-    \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\footnotesize Старт $s$}] (S) at (1.2, 1.5) {};
-    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2.5pt, label=below:{\footnotesize Финиш $g$}] (G) at (5.8, 1.5) {};
+    \node[circle, fill=green!70!black, inner sep=2pt, label=below:{\tiny Старт $s$}] (S) at (1.0, 1.2) {};
+    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2pt, label=below:{\tiny Финиш $g$}] (G) at (5.4, 1.2) {};
     
     % Ошибочный выбор точки деления пополам
-    \node[circle, fill=orange!90!black, inner sep=2.5pt, label=above:{\footnotesize Ошибочный $w^*$}] (W) at (3.5, 2.2) {};
+    \node[circle, fill=orange!90!black, inner sep=2pt, label=above:{\tiny Ошибочный $w^*$}] (W) at (3.2, 1.8) {};
     
     \draw[->, thick, dashed, orange!80!black] (S) -- (W);
     \draw[->, thick, dashed, orange!80!black] (W) -- (G);
-    \node[cross out, draw=red, line width=2pt, minimum size=10pt] at (2.2, 1.85) {};
+    \node[cross out, draw=red, line width=1.8pt, minimum size=8pt] at (2.0, 1.5) {};
     
     % Истинный маршрут обхода
-    \draw[->, ultra thick, blue!80!black] (S) -- (1.2, 0.4) -- (5.8, 0.4) -- (G);
-    \node[fill=white, inner sep=2pt, font=\scriptsize, align=center, blue!80!black] at (3.5, 0.15) {Истинный маршрут обхода снизу};
-
+    \draw[->, ultra thick, blue!80!black] (S) -- (1.0, 0.3) -- (5.4, 0.3) -- (G);
+    \node[fill=white, inner sep=1.5pt, font=\tiny, blue!80!black] at (3.2, 0.1) {Истинный путь обхода};
 \end{tikzpicture}
