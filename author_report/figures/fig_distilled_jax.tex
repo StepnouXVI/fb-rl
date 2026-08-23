@@ -1,0 +1,30 @@
+\begin{tikzpicture}[>=stealth, font=\small, scale=0.88, every node/.style={transform shape}]
+    % Входные данные
+    \node[draw=blue!80, fill=blue!10, rounded corners=4pt, minimum width=2.2cm, minimum height=0.9cm, align=center] (obs) at (0, 2.2) {Состояние $s_t$\\$\mathbb{R}^{29}$};
+    \node[draw=orange!80, fill=orange!10, rounded corners=4pt, minimum width=2.2cm, minimum height=0.9cm, align=center] (goal) at (0, -0.2) {Цель $B(g)$\\$\mathbb{R}^{128}$};
+
+    % Энкодеры
+    \node[draw=blue!80, fill=blue!20, rounded corners=4pt, minimum width=2.4cm, minimum height=0.9cm, align=center] (enc_s) at (3.2, 2.2) {State Encoder\\MLP + SwiGLU};
+    \node[draw=orange!80, fill=orange!20, rounded corners=4pt, minimum width=2.4cm, minimum height=0.9cm, align=center] (enc_g) at (3.2, -0.2) {Goal Encoder\\MLP + SwiGLU};
+
+    % Блок внимания и гейта
+    \node[draw=purple!80, fill=purple!15, rounded corners=6pt, minimum width=3.2cm, minimum height=1.6cm, align=center] (gate) at (7.0, 1.0) {\textbf{Gated Cross-Attention}\\$Q = E_s, \;\; K, V = E_g$\\$H = \text{Attn} \odot \sigma(W_g [E_s, E_g])$};
+
+    % Проекция на сферу
+    \node[draw=green!70!black, fill=green!15, rounded corners=4pt, minimum width=2.5cm, minimum height=0.9cm, align=center] (proj) at (10.8, 1.0) {\textbf{Проекция на $\mathbb{S}^{d-1}$}\\$\hat{z} = \sqrt{d} \cdot \frac{z}{\|z\|}$};
+
+    % Выход
+    \node[draw=red!70!black, fill=red!15, rounded corners=4pt, minimum width=2.2cm, minimum height=0.9cm, align=center] (out) at (13.8, 1.0) {\textbf{Интенция}\\$\hat{z}_{\text{cmd}} \to \pi^\ell$};
+
+    \draw[->, thick] (obs) -- (enc_s);
+    \draw[->, thick] (goal) -- (enc_g);
+    \draw[->, thick] (enc_s) -- (gate);
+    \draw[->, thick] (enc_g) -- (gate);
+    \draw[->, thick] (gate) -- (proj);
+    \draw[->, thick] (proj) -- (out);
+
+    % Нижняя плашка с лоссом
+    \node[draw=gray!60, fill=gray!8, rounded corners=4pt, minimum width=13.5cm, inner sep=5pt, align=center, font=\footnotesize] at (6.9, -1.8) {
+        \textbf{Дифференцируемый 4-компонентный лосс:} $\mathcal{L}(\theta) = \underbrace{\|\hat{z} - z^*\|^2}_{\mathcal{L}_{\text{BC}}} + 0.5 \cdot \underbrace{\|\pi^\ell(s, \hat{z}) - a^*\|^2}_{\mathcal{L}_{\text{Action}}} - 0.02 \cdot \underbrace{F(s, \hat{z})^\top \hat{z}}_{\mathcal{L}_{\text{Reach}}} - 0.05 \cdot \underbrace{\hat{z}^\top B(g)}_{\mathcal{L}_{\text{Goal}}}$
+    };
+\end{tikzpicture}

@@ -1,0 +1,57 @@
+\section{Третья идея: Амортизированная нейросетевая дистилляция в $O(1)$}
+
+\subsection{Мотивация: сжатие графа в единую нейросеть}
+
+Хотя графовый планировщик Дейкстры показал высокую надежность, ему присущи два принципиальных недостатка: квадратичные затраты памяти $O(N^2)$ при масштабировании на гигантские лабиринты и вычислительная задержка ($\sim 1.2\,\text{мс}$ на шаг). 
+
+Возникла исследовательская гипотеза: \textit{можно ли сжать глобальные рассуждения графового алгоритма в легковесную нейросеть-студент, которая за один прямой проход ($O(1)$) будет отображать пару $(s_t, B(g)) \to \hat{z}_{\text{cmd}}$ напрямую в низкоуровневую политику $\pi^\ell$?} Идейно такая модель принимает те же входы, что и базовый Single-Intention контроллер, но обучена не наивному спрямлению пути, а траекторному поведению учителя Дейкстры.
+
+\subsection{Дифференцируемый функционал потерь в JAX}
+
+Для обучения сети был собран датасет из 50~000 пар $(s_t, B(g)) \to z^*_{\text{teacher}}$, сгенерированных учителем. Чтобы сеть не просто копировала векторы (Behavior Cloning), но и учитывала физику робота и геометрию FB-пространства, я разработал 4-компонентный дифференцируемый лосс:
+\addequation{
+    \mathcal{L}(\theta) = \mathcal{L}_{\text{BC}}(\hat{z}, z^*) + 0.5 \cdot \mathcal{L}_{\text{Action}}(\hat{z}) - 0.02 \cdot \mathcal{L}_{\text{Reach}}(\hat{z}) - 0.05 \cdot \mathcal{L}_{\text{Goal}}(\hat{z}),
+}{eq:distillation_loss}
+где компоненты выполняют следующие физические функции:
+\begin{itemize}
+    \item $\mathcal{L}_{\text{BC}} = (1 - \cos(\hat{z}, z^*)) + \text{MSE}(\hat{z}, z^*)$ — имитация направления вектора учителя.
+    \item $\mathcal{L}_{\text{Action}} = \|\pi^\ell(s_t, \hat{z}) - a^*_{\text{teacher}}\|^2$ — прямое согласование действий в пространстве моторов (продифференцировано сквозь замороженную $\pi^\ell$).
+    \item $\mathcal{L}_{\text{Reach}} = F(s_t, \hat{z})^\top \hat{z}$ — штраф за выбор недостижимых латентных направлений.
+    \item $\mathcal{L}_{\text{Goal}} = \hat{z}^\top B(g)$ — глобальное притяжение к терминальной цели.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \input{figures/fig_distilled_jax.tex}
+    \caption{Архитектура амортизированного планировщика Distilled JAX Gated-Attention.}
+    \label{fig:distilled_jax}
+\end{figure}
+
+\subsection{Исследование нейросетевых архитектур (Ablation Study)}
+
+В рамках дистилляции было исследовано 4 архитектурных решения:
+\begin{enumerate}
+    \item \textbf{Standard MLP}: 4-слойный перцептрон с LayerNorm и GELU.
+    \item \textbf{ResNet-ECA}: остаточные блоки с эффективным одномерным канальным вниманием (1D ECA).
+    \item \textbf{Dense-ECA}: конкатенация признаков с плотными связями (DenseNet).
+    \item \textbf{Gated Cross-Attention}: раздельные энкодеры состояния и цели с механизмом перекрестного внимания и управляемым мультипликативным гейтом (SwiGLU).
+\end{enumerate}
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Сравнение архитектур дистилляции на задаче AntMaze Medium}
+    \label{tab:arch_comparison}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{Архитектура} & \textbf{Число параметров} & \textbf{Val Cos-Sim} & \textbf{Success Rate (\%)} & \textbf{Инференс (мс/шаг)} \\
+        \midrule
+        Standard MLP & 312K & 0.891 & 78.0\% & 0.12 \\
+        Dense-ECA & 458K & 0.914 & 82.0\% & 0.16 \\
+        ResNet-ECA & 524K & 0.908 & 80.0\% & 0.15 \\
+        \textbf{Gated Cross-Attention} & \textbf{680K} & \textbf{0.942} & \textbf{86.0\%} & \textbf{0.18} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Архитектура Gated Cross-Attention показала лучший результат, достигнув **86.0\%** успешности (превзойдя учителя Дейкстры на +8\% за счет сглаживания дискретных артефактов графа) при инференсе всего **0.18 мс** на шаг.

@@ -1,0 +1,24 @@
+\begin{tikzpicture}[>=stealth, font=\small, scale=0.95, every node/.style={transform shape}]
+    % Лабиринт с U-образным тупиком
+    \draw[thick, fill=gray!10] (0,0) rectangle (7,4);
+    
+    % U-образная стена
+    \draw[ultra thick, line width=3.5pt, red!70!black] (2.2, 0.8) -- (2.2, 3.2) -- (4.8, 3.2) -- (4.8, 0.8);
+    \node[font=\footnotesize\bfseries, red!70!black] at (3.5, 3.45) {U-образное препятствие};
+    
+    % Точки
+    \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\footnotesize Старт $s$}] (S) at (1.2, 1.5) {};
+    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2.5pt, label=below:{\footnotesize Финиш $g$}] (G) at (5.8, 1.5) {};
+    
+    % Ошибочный выбор точки деления пополам
+    \node[circle, fill=orange!90!black, inner sep=2.5pt, label=above:{\footnotesize Ошибочный $w^*$}] (W) at (3.5, 2.2) {};
+    
+    \draw[->, thick, dashed, orange!80!black] (S) -- (W);
+    \draw[->, thick, dashed, orange!80!black] (W) -- (G);
+    \node[cross out, draw=red, line width=2pt, minimum size=10pt] at (2.2, 1.85) {};
+    
+    % Истинный маршрут обхода
+    \draw[->, ultra thick, blue!80!black] (S) -- (1.2, 0.4) -- (5.8, 0.4) -- (G);
+    \node[fill=white, inner sep=2pt, font=\scriptsize, align=center, blue!80!black] at (3.5, 0.15) {Истинный маршрут обхода снизу};
+
+\end{tikzpicture}

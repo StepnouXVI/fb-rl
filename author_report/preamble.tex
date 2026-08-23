@@ -1,0 +1,76 @@
+%%% Преамбула авторского отчета %%%
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{color,xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{caption}
+\usepackage{subcaption}
+
+% Шрифты и оформление текста
+\usepackage{tempora}
+\usepackage{mathtools,amssymb,amsmath}
+\usepackage{newtxmath}
+\usepackage{indentfirst}
+\usepackage{float}
+\usepackage{enumitem}
+
+% Геометрия страницы
+\usepackage{geometry}
+\geometry{left=2.5cm, right=1.5cm, top=2cm, bottom=2cm}
+
+\renewcommand{\baselinestretch}{1.3}
+\parindent 1.25cm
+\sloppy
+\hyphenpenalty=1000
+\clubpenalty=10000
+\widowpenalty=10000
+
+% Настройка списков
+\setlist[enumerate,itemize]{leftmargin=1.25cm, topsep=2pt, itemsep=2pt, parsep=0pt}
+\renewcommand{\labelitemi}{--}
+
+% Гиперссылки
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black,
+    pdfauthor={Савватей Степанов},
+    pdftitle={Исследование методов планирования последовательностей интенций поверх Forward-Backward представлений}
+}
+
+% TikZ графика
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,calc,fit,backgrounds,decorations.pathreplacing,patterns}
+
+% Блоки алгоритмов
+\usepackage[linesnumbered,ruled,vlined,russian,onelanguage]{algorithm2e}
+\SetKwInput{KwIn}{Вход}
+\SetKwInput{KwOut}{Выход}
+\SetKwInput{KwData}{Данные}
+\SetKwInput{KwResult}{Результат}
+\SetKw{KwAnd}{и}
+\SetKw{KwOr}{или}
+
+% Команды для формул и секций (в стиле диплома)
+\newcommand{\addequation}[2]{
+    \begin{equation}
+        \label{#2}
+        #1
+    \end{equation}
+}
+
+\newcommand{\anonsection}[1]{
+    \section*{#1}
+    \addcontentsline{toc}{section}{#1}
+}
+
+\numberwithin{equation}{section}
+\counterwithin{figure}{section}
+\counterwithin{table}{section}

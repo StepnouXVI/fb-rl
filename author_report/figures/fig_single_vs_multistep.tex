@@ -1,0 +1,37 @@
+\begin{tikzpicture}[>=stealth, font=\small, scale=0.95, every node/.style={transform shape}]
+    % Левая часть: Single-Intention Baseline
+    \begin{scope}[shift={(0,0)}]
+        \draw[thick, fill=gray!10] (0,0) rectangle (5,3.2);
+        \draw[ultra thick, line width=3pt, red!70!black] (2.2, 0.6) -- (2.2, 2.6);
+        \node[font=\footnotesize\bfseries, red!70!black] at (2.2, 2.85) {Стена};
+        
+        \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\footnotesize Старт $s_0$}] (S) at (0.8, 1.6) {};
+        \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2pt, label=below:{\footnotesize Цель $g$}] (G) at (4.2, 1.6) {};
+        
+        \draw[->, ultra thick, dashed, red!80!black] (S) -- (2.05, 1.6);
+        \node[cross out, draw=red, line width=2pt, minimum size=10pt] at (2.15, 1.6) {};
+        \node[fill=white, inner sep=2pt, font=\scriptsize, align=center] at (1.1, 2.4) {$\pi^h(s_0, B(g)) \to z_{\text{direct}}$\\(Застревание в стене)};
+        
+        \node[font=\bfseries, align=center] at (2.5, -0.4) {а) Single-Intention Baseline};
+    \end{scope}
+
+    % Правая часть: Multi-Subgoal Sequence
+    \begin{scope}[shift={(6.5,0)}]
+        \draw[thick, fill=gray!10] (0,0) rectangle (5,3.2);
+        \draw[ultra thick, line width=3pt, red!70!black] (2.2, 0.6) -- (2.2, 2.6);
+        \node[font=\footnotesize\bfseries, red!70!black] at (2.2, 2.85) {Стена};
+        
+        \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\footnotesize Старт $s_0$}] (S2) at (0.8, 1.6) {};
+        \node[circle, fill=blue!70!black, inner sep=2pt, label=above:{\footnotesize $w_1$}] (W1) at (1.2, 2.7) {};
+        \node[circle, fill=blue!70!black, inner sep=2pt, label=above:{\footnotesize $w_2$}] (W2) at (3.2, 2.7) {};
+        \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2pt, label=below:{\footnotesize Цель $g$}] (G2) at (4.2, 1.6) {};
+        
+        \draw[->, thick, blue!80!black] (S2) to[bend left=15] (W1);
+        \draw[->, thick, blue!80!black] (W1) to (W2);
+        \draw[->, thick, blue!80!black] (W2) to[bend left=15] (G2);
+        
+        \node[fill=white, inner sep=2pt, font=\scriptsize, align=center] at (3.8, 2.3) {Последовательность\\вейпоинтов};
+        
+        \node[font=\bfseries, align=center] at (2.5, -0.4) {б) Multi-Subgoal Planning};
+    \end{scope}
+\end{tikzpicture}

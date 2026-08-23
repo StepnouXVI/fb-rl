@@ -1,0 +1,37 @@
+\begin{tikzpicture}[>=stealth, font=\small, scale=0.92, every node/.style={transform shape}]
+    % Граф ориентиров
+    \draw[thick, fill=blue!3] (0,0) rectangle (7.5,4);
+    
+    % Стена лабиринта
+    \draw[ultra thick, line width=4pt, red!70!black] (3.6, 0.6) -- (3.6, 3.4);
+    \node[font=\footnotesize\bfseries, red!70!black] at (3.6, 3.65) {Стена};
+    
+    % Узлы графа (Landmarks)
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n1) at (0.8, 1.0) {};
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n2) at (1.2, 2.8) {};
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n3) at (2.4, 3.2) {};
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n4) at (4.8, 3.2) {};
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n5) at (6.0, 2.8) {};
+    \node[circle, fill=blue!60!black, inner sep=2pt] (n6) at (6.4, 1.0) {};
+    
+    % Ребра графа
+    \draw[->, thick, gray!60] (n1) -- (n2);
+    \draw[->, thick, gray!60] (n2) -- (n3);
+    \draw[->, thick, gray!60] (n3) -- (n4);
+    \draw[->, thick, gray!60] (n4) -- (n5);
+    \draw[->, thick, gray!60] (n5) -- (n6);
+    
+    % Недействительное ребро сквозь стену
+    \draw[->, thick, dashed, red!60] (n1) -- (n6);
+    \node[font=\tiny, fill=white, text=red!80!black] at (3.6, 1.0) {$c=\infty$ (отфильтровано)};
+    
+    % Агент и Sliding Lookahead
+    \node[circle, fill=green!70!black, inner sep=3pt, label=below:{\footnotesize Муравей $s_t$}] (A) at (1.6, 2.2) {};
+    \node[circle, fill=purple!80!black, inner sep=2.5pt, label=above:{\footnotesize Скользящий вейпоинт $w_{\text{lookahead}}$}] (W) at (2.4, 3.2) {};
+    
+    \draw[->, ultra thick, blue!80!black] (A) -- (W);
+    \draw[<->, thick, dashed, purple!80!black] (A) to[bend right=25] node[midway, below, font=\scriptsize] {$L_{\text{lookahead}} = 2.6\,\text{м}$} (W);
+    
+    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2.5pt, label=below:{\footnotesize Цель $g$}] (G) at (6.8, 0.8) {};
+    \draw[->, thick, gray!60] (n6) -- (G);
+\end{tikzpicture}
