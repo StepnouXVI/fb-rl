@@ -152,58 +152,31 @@ def test_enhanced_sequence_waypoint_attention_translator_forward():
     np.testing.assert_allclose(jnp.linalg.norm(z_nocurv, axis=-1), np.sqrt(128), atol=1e-3)
 
 
+class _MockDist:
+    def __init__(self, val):
+        self.val = val
+    def mode(self):
+        return self.val
+
+
 def test_enhanced_sequence_wp_differentiable_train_step():
     model = FlaxEnhancedSequenceWaypointAttentionTranslator(
-        obs_dim=29,
-        latent_dim=128,
-        hidden_dim=64,
-        num_heads=2,
-        max_seq_len=8,
-        n_layers=1,
-        dropout_rate=0.2,
-        alibi_slope=0.4,
-        local_window_size=4,
+        obs_dim=29, latent_dim=128, hidden_dim=64, num_heads=2, max_seq_len=8, n_layers=1, dropout_rate=0.2, alibi_slope=0.4, local_window_size=4
     )
-    rng = jax.random.PRNGKey(0)
-    rng, r1, r2 = jax.random.split(rng, 3)
-    dummy_s = jnp.ones((4, 29))
-    dummy_seq = jnp.ones((4, 8, 128))
-    dummy_mask = jnp.ones((4, 8), dtype=bool)
-    dummy_curv = jnp.ones((4, 8, 1), dtype=jnp.float32)
+    rng, r1, r2 = jax.random.split(jax.random.PRNGKey(0), 3)
+    dummy_s, dummy_seq = jnp.ones((4, 29)), jnp.ones((4, 8, 128))
+    dummy_mask, dummy_curv = jnp.ones((4, 8), dtype=bool), jnp.ones((4, 8, 1), dtype=jnp.float32)
     params = model.init({"params": r1, "dropout": r1}, dummy_s, dummy_seq, dummy_mask, dummy_curv, deterministic=False)["params"]
 
-    class MockDist:
-        def __init__(self, val):
-            self.val = val
-        def mode(self):
-            return self.val
-
-    def mock_actor(s, z, **kwargs):
-        return MockDist(jnp.tanh(s[:, :8] + z[:, :8]))
-
-    def mock_f(s, z, **kwargs):
-        return z
-
-    def mock_b(g):
-        return g
+    mock_actor = lambda s, z, **kw: _MockDist(jnp.tanh(s[:, :8] + z[:, :8]))
+    mock_f, mock_b = (lambda s, z, **kw: z), (lambda g: g)
 
     optimizer = optax.adam(1e-3)
-    opt_state = optimizer.init(params)
     step_fn = make_enhanced_sequence_wp_train_step(model.apply, mock_actor, mock_f, mock_b, optimizer)
-
-    batch = {
-        "state": dummy_s,
-        "wp_seq": dummy_seq,
-        "seq_mask": dummy_mask,
-        "curvatures": dummy_curv,
-        "z_target": jnp.ones((4, 128)) * 0.1,
-        "a_target": jnp.zeros((4, 8)),
-    }
+    batch = {"state": dummy_s, "wp_seq": dummy_seq, "seq_mask": dummy_mask, "curvatures": dummy_curv, "z_target": jnp.ones((4, 128)) * 0.1, "a_target": jnp.zeros((4, 8))}
     lambdas = {"l_cos": 1.0, "l_mse": 0.1, "l_action": 0.5, "l_reach": 0.02, "l_goal": 0.05, "l_aux": 0.2}
 
-    new_params, new_opt_state, metrics, new_rng = step_fn(params, opt_state, batch, lambdas, r2)
+    new_params, new_opt_state, metrics, new_rng = step_fn(params, optimizer.init(params), batch, lambdas, r2)
     assert metrics["loss"] is not None
-    assert "loss_action" in metrics
-    assert "loss_aux" in metrics
-    assert "cos_sim" in metrics
+    assert "loss_action" in metrics and "loss_aux" in metrics and "cos_sim" in metrics
 

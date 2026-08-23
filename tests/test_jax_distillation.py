@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import optax
 
 from src.agent_loader import load_pretrained_agent
-from src.jax_distillation import build_flax_translator, make_train_step, make_eval_step
+from src.waypoint_translators import build_flax_translator, make_train_step, make_eval_step
 from src.planners import DistilledJAXPlanner
 
 

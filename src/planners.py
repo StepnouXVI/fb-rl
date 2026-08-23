@@ -1,5 +1,6 @@
 import os
 import functools
+import pickle
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -8,31 +9,30 @@ from scipy.sparse.csgraph import dijkstra
 import torch
 import torch.nn as nn
 from src.models import build_student_model
+from src.waypoint_translators import (
+    FlaxSingleWaypointTranslator,
+    FlaxSequenceWaypointAttentionTranslator,
+    FlaxEnhancedSequenceWaypointAttentionTranslator,
+    build_flax_translator,
+)
 
-# ponytail: Pure JIT-Compiled Primitives for Ultra-Fast Inference (<0.05ms/step)
+# ==============================================================================
+# Pure JIT-Compiled Execution Primitives (<0.05ms/step)
+# ==============================================================================
 
 @functools.partial(jax.jit, static_argnames=("temperature",))
 def _jit_baseline_step(agent, obs, goal_latent, seed=None, temperature=0.0):
-    """Fused high_actor + actor execution in a single XLA kernel."""
     obs_b = obs[None, :] if obs.ndim == 1 else obs
     z_b = goal_latent[None, :] if goal_latent.ndim == 1 else goal_latent
-
     high_dist = agent.network.select("high_actor")(obs_b, z_b, goal_encoded=True, temperature=0.0)
     subgoal_z = agent.normalize_z(high_dist.mode())
-
     low_dist = agent.network.select("actor")(obs_b, subgoal_z, goal_encoded=True, temperature=temperature)
-    if temperature == 0.0 or seed is None:
-        action = low_dist.mode()
-    else:
-        action = low_dist.sample(seed=seed)
-
+    action = low_dist.mode() if (temperature == 0.0 or seed is None) else low_dist.sample(seed=seed)
     return jnp.clip(action[0], -1.0, 1.0), subgoal_z[0]
-
 
 
 @jax.jit
 def _jit_batch_reach(agent, states, targets):
-    """Jitted batch reachability metric."""
     f = agent.network.select("forward_repr")(states, targets, goal_encoded=True)
     if f.ndim == 3:
         f = jnp.mean(f, axis=0)
@@ -41,9 +41,7 @@ def _jit_batch_reach(agent, states, targets):
 
 @jax.jit
 def _jit_actor_from_latent(agent, obs, latent):
-    """Jitted low-actor execution given a latent intention."""
-    obs_b = obs[None, :] if obs.ndim == 1 else obs
-    z_b = latent[None, :] if latent.ndim == 1 else latent
+    obs_b, z_b = obs[None, :], latent[None, :]
     high_dist = agent.network.select("high_actor")(obs_b, z_b, goal_encoded=True, temperature=0.0)
     subgoal_z = agent.normalize_z(high_dist.mode())
     low_dist = agent.network.select("actor")(obs_b, subgoal_z, goal_encoded=True, temperature=0.0)
@@ -52,15 +50,93 @@ def _jit_actor_from_latent(agent, obs, latent):
 
 @jax.jit
 def _jit_decode_latent_to_coords(latent, landmark_latents):
-    """Finds the nearest landmark index in latent space."""
     z = latent / jnp.linalg.norm(latent, axis=-1, keepdims=True)
-    sims = jnp.matmul(landmark_latents, z.T)
-    return jnp.argmax(sims)
+    return jnp.argmax(jnp.matmul(landmark_latents, z.T))
 
 
-# ==========================================
-# Pure FB Planner Classes (Zero Maze Map Access)
-# ==========================================
+# ==============================================================================
+# Helper Functions for Graph Path Planning & Curvature
+# ==============================================================================
+
+def _find_connected_landmarks(landmark_coords, landmark_latents, all_dist, obs_xy, goal_z):
+    sims = np.asarray(jnp.matmul(landmark_latents, (goal_z / (np.linalg.norm(goal_z) + 1e-8)).T))
+    top_goals = np.argsort(-sims)[:15]
+    top_starts = np.argsort(np.linalg.norm(landmark_coords - obs_xy, axis=-1))[:20]
+    for g in top_goals:
+        for s in top_starts:
+            if np.isfinite(all_dist[s, g]):
+                return s, g
+    return top_starts[0], top_goals[0]
+
+
+def _backtrack_dijkstra_path(all_pred, start_idx, goal_idx, max_nodes):
+    path, curr = [], goal_idx
+    while curr != -9999 and curr != start_idx and len(path) <= max_nodes:
+        path.append(curr)
+        curr = all_pred[start_idx, curr]
+    if curr == start_idx:
+        path.append(start_idx)
+        path.reverse()
+        return path
+    return [start_idx, goal_idx]
+
+
+def _extract_corner_waypoints(path_coords, path_latents, lookahead_dist):
+    if len(path_coords) <= 2:
+        return list(path_coords), list(path_latents)
+    filtered = [0]
+    accum = 0.0
+    for k in range(1, len(path_coords) - 1):
+        v1, v2 = path_coords[k] - path_coords[k - 1], path_coords[k + 1] - path_coords[k]
+        l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
+        accum += l1
+        is_turn = (l1 > 0.1 and l2 > 0.1 and (np.dot(v1, v2) / (l1 * l2)) < 0.7)
+        if accum >= lookahead_dist or is_turn:
+            filtered.append(k)
+            accum = 0.0
+    if filtered[-1] != len(path_coords) - 1:
+        filtered.append(len(path_coords) - 1)
+    return [path_coords[k] for k in filtered], [path_latents[k] for k in filtered]
+
+
+def _track_local_path_index(obs_xy, path_coords, current_idx, max_window=7):
+    search_start = max(0, current_idx - 2)
+    search_end = min(len(path_coords), current_idx + max_window)
+    dists = [np.linalg.norm(obs_xy - path_coords[k]) for k in range(search_start, search_end)]
+    best_offset = int(np.argmin(dists))
+    return search_start + best_offset, dists[best_offset]
+
+
+def _extract_curvature_angles(coords):
+    K = len(coords)
+    curvs = []
+    for k in range(K):
+        if k + 2 < K:
+            v1, v2 = coords[k + 1] - coords[k], coords[k + 2] - coords[k + 1]
+            l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
+            curvs.append(float(np.clip(np.dot(v1, v2) / (l1 * l2), -1.0, 1.0)) if (l1 > 1e-4 and l2 > 1e-4) else 1.0)
+        else:
+            curvs.append(1.0)
+    return curvs
+
+
+def _check_stuck_state(pos_history, obs_xy, dist_to_final, stuck_count):
+    pos_history.append(obs_xy.copy())
+    if len(pos_history) > 40:
+        pos_history.pop(0)
+    is_stuck = False
+    if len(pos_history) >= 40 and dist_to_final > 1.8:
+        if float(np.linalg.norm(obs_xy - pos_history[0])) < 0.4:
+            is_stuck = True
+            stuck_count += 1
+        else:
+            stuck_count = max(0, stuck_count - 1)
+    return is_stuck, stuck_count
+
+
+# ==============================================================================
+# Base & Baseline Planners
+# ==============================================================================
 
 class BasePlanner:
     def __init__(self, agent, name="BasePlanner"):
@@ -72,9 +148,7 @@ class BasePlanner:
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
-        action, _ = _jit_baseline_step(
-            self.agent, jnp.asarray(obs), jnp.asarray(goal_latent), seed=seed, temperature=temperature
-        )
+        action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), jnp.asarray(goal_latent), seed=seed, temperature=temperature)
         return np.asarray(action)
 
     def get_subgoal_info(self):
@@ -85,55 +159,36 @@ class BaselinePlanner(BasePlanner):
     def __init__(self, agent, dataset_states=None, use_high_actor=True, name="Single-Intention Baseline"):
         super().__init__(agent, name=name)
         self.use_high_actor = use_high_actor
-
         if dataset_states is not None:
             n_samples = min(500, len(dataset_states))
-            rng = np.random.default_rng(42)
-            idxs = rng.choice(len(dataset_states), size=n_samples, replace=False)
+            idxs = np.random.default_rng(42).choice(len(dataset_states), size=n_samples, replace=False)
             self.ref_coords = np.asarray(dataset_states[idxs][:, :2])
-            self.ref_latents = jnp.asarray(
-                agent.normalize_z(agent.network.select("backward_repr")(jnp.asarray(dataset_states[idxs])))
-            )
+            self.ref_latents = jnp.asarray(agent.normalize_z(agent.network.select("backward_repr")(jnp.asarray(dataset_states[idxs]))))
         else:
-            self.ref_coords = None
-            self.ref_latents = None
+            self.ref_coords, self.ref_latents = None, None
 
     def reset(self, obs, goal_latent):
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
-        obs_jnp = jnp.asarray(obs)
-        goal_jnp = jnp.asarray(goal_latent)
+        obs_jnp, goal_jnp = jnp.asarray(obs), jnp.asarray(goal_latent)
         if self.use_high_actor:
             action, high_z = _jit_baseline_step(self.agent, obs_jnp, goal_jnp, seed=seed, temperature=temperature)
-
-            if self.ref_latents is not None:
-                best_idx = int(_jit_decode_latent_to_coords(high_z, self.ref_latents))
-                decoded_xy = self.ref_coords[best_idx].tolist()
-            else:
-                decoded_xy = None
-
-            self.last_subgoal_info = {
-                "subgoal_xy": decoded_xy,
-                "waypoints_xy": [decoded_xy] if decoded_xy else [],
-                "is_direct_goal": False,
-            }
+            decoded_xy = self.ref_coords[int(_jit_decode_latent_to_coords(high_z, self.ref_latents))].tolist() if self.ref_latents is not None else None
+            self.last_subgoal_info = {"subgoal_xy": decoded_xy, "waypoints_xy": [decoded_xy] if decoded_xy else [], "is_direct_goal": False}
         else:
-            norm_z = self.agent.normalize_z(goal_jnp)
-            low_dist = self.agent.network.select("actor")(
-                obs_jnp[None, :], norm_z[None, :], goal_encoded=True, temperature=temperature
-            )
+            low_dist = self.agent.network.select("actor")(obs_jnp[None, :], self.agent.normalize_z(goal_jnp)[None, :], goal_encoded=True, temperature=temperature)
             action = jnp.clip(low_dist.mode()[0], -1.0, 1.0)
             self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
-
         return np.asarray(action)
 
 
+# ==============================================================================
+# Buffer Graph & Dijkstra Teacher Planner
+# ==============================================================================
+
 class BufferGraphPlanner(BasePlanner):
-    """
-    Offline RL planning using purely the Forward-Backward reachability model.
-    Zero access to environment maze_map or wall geometries.
-    """
+    """Offline RL planning using purely the Forward-Backward reachability model."""
     def __init__(self, agent, dataset_states, n_landmarks=1000, max_edge_radius=3.5, reachability_cutoff=35.0, lookahead_dist=2.6, name="buffer_graph"):
         super().__init__(agent, name=name)
         self.n_landmarks = min(n_landmarks, len(dataset_states))
@@ -141,140 +196,40 @@ class BufferGraphPlanner(BasePlanner):
         self.reachability_cutoff = reachability_cutoff
         self.lookahead_dist = lookahead_dist
 
-        # 1. Sample landmarks uniformly from offline dataset
-        rng = np.random.default_rng(42)
-        idxs = rng.choice(len(dataset_states), size=self.n_landmarks, replace=False)
+        idxs = np.random.default_rng(42).choice(len(dataset_states), size=self.n_landmarks, replace=False)
         self.landmarks = jnp.asarray(dataset_states[idxs])
         self.landmark_coords = np.asarray(dataset_states[idxs][:, :2])
+        self.landmark_latents = jnp.asarray(agent.normalize_z(agent.network.select("backward_repr")(self.landmarks)))
 
-        # 2. Encode all landmark backward representations
-        self.landmark_latents = jnp.asarray(
-            agent.normalize_z(agent.network.select("backward_repr")(self.landmarks))
-        )
-
-        # 3. Build reachability graph and compute shortest path predecessors
         self.cost_matrix, self.reach_matrix = self._build_graph()
-        self.all_dist, self.all_pred = dijkstra(
-            self.cost_matrix, directed=True, return_predecessors=True
-        )
-
-        self.path_coords = []
-        self.path_latents = []
-        self.waypoint_coords = []
-        self.waypoints = []
-        self.goal_z = None
-        self.current_path_idx = 0
-        self.pos_history = []
+        self.all_dist, self.all_pred = dijkstra(self.cost_matrix, directed=True, return_predecessors=True)
+        self.path_coords, self.path_latents, self.waypoint_coords, self.waypoints = [], [], [], []
+        self.goal_z, self.current_path_idx, self.pos_history, self.stuck_count = None, 0, [], 0
 
     def _build_graph(self):
         n = len(self.landmarks)
-        s_rep = jnp.repeat(self.landmarks, n, axis=0)
-        z_tile = jnp.tile(self.landmark_latents, (n, 1))
-
-        reach_flat = []
-        for i in range(0, len(s_rep), 45000):
-            sb = s_rep[i : i + 45000]
-            zb = z_tile[i : i + 45000]
-            reach_flat.append(np.asarray(_jit_batch_reach(self.agent, sb, zb)))
-        reach_matrix = np.concatenate(reach_flat, axis=0).reshape((n, n))
-
-        dists_euclid = np.linalg.norm(
-            self.landmark_coords[:, None, :] - self.landmark_coords[None, :, :], axis=-1
-        )
-
-        max_diag = float(np.max(np.diag(reach_matrix))) if np.max(np.diag(reach_matrix)) > 0 else 1.0
-        normalized = np.clip(reach_matrix / max_diag, 1e-6, 1.0)
-        cost_matrix = np.maximum(0.0, -np.log(normalized))
-
-        # Disallow edges that span across walls
-        cost_matrix[dists_euclid > self.max_edge_radius] = np.inf
-        cost_matrix[reach_matrix < self.reachability_cutoff] = np.inf
-        np.fill_diagonal(cost_matrix, 0.0)
-
-        return cost_matrix, reach_matrix
+        s_rep, z_tile = jnp.repeat(self.landmarks, n, axis=0), jnp.tile(self.landmark_latents, (n, 1))
+        reach_flat = [np.asarray(_jit_batch_reach(self.agent, s_rep[i:i+45000], z_tile[i:i+45000])) for i in range(0, len(s_rep), 45000)]
+        reach_m = np.concatenate(reach_flat, axis=0).reshape((n, n))
+        dists_e = np.linalg.norm(self.landmark_coords[:, None, :] - self.landmark_coords[None, :, :], axis=-1)
+        max_diag = float(np.max(np.diag(reach_m))) if np.max(np.diag(reach_m)) > 0 else 1.0
+        cost_m = np.maximum(0.0, -np.log(np.clip(reach_m / max_diag, 1e-6, 1.0)))
+        cost_m[dists_e > self.max_edge_radius] = np.inf
+        cost_m[reach_m < self.reachability_cutoff] = np.inf
+        np.fill_diagonal(cost_m, 0.0)
+        return cost_m, reach_m
 
     def reset(self, obs, goal_z):
         obs_xy = np.asarray(obs[:2])
-
-        # Find closest reachable landmark to obs_xy and goal_z
-        goal_z_norm = goal_z / (np.linalg.norm(goal_z) + 1e-8)
-        sims = np.asarray(jnp.matmul(self.landmark_latents, goal_z_norm.T))
-
-        # Sort goals by cosine similarity
-        top_goals = np.argsort(-sims)[:15]
-
-        # Sort starts by Euclidean distance
-        dists_to_obs = np.linalg.norm(self.landmark_coords - obs_xy, axis=-1)
-        top_starts = np.argsort(dists_to_obs)[:20]
-
-        best_s, best_g = top_starts[0], top_goals[0]
-        found = False
-        for g in top_goals:
-            for s in top_starts:
-                if np.isfinite(self.all_dist[s, g]):
-                    best_s, best_g = s, g
-                    found = True
-                    break
-            if found:
-                break
-
-        start_idx, goal_idx = best_s, best_g
-
-        # Reconstruct path from predecessors
-        path = []
-        curr = goal_idx
-        while curr != -9999 and curr != start_idx:
-            path.append(curr)
-            curr = self.all_pred[start_idx, curr]
-            if len(path) > self.n_landmarks:
-                break
-
-        if curr == start_idx:
-            path.append(start_idx)
-            path.reverse()
-        else:
-            path = [start_idx, goal_idx]
+        s_idx, g_idx = _find_connected_landmarks(self.landmark_coords, self.landmark_latents, self.all_dist, obs_xy, goal_z)
+        path = _backtrack_dijkstra_path(self.all_pred, s_idx, g_idx, self.n_landmarks)
 
         self.path_indices = path
         self.path_coords = [self.landmark_coords[i] for i in path]
         self.path_latents = [self.landmark_latents[i] for i in path]
         self.path_states = [np.asarray(self.landmarks[i]) for i in path]
-        self.goal_z = goal_z
-        self.current_path_idx = 0
-        self.pos_history = []
-        self.stuck_count = 0
-
-        # Extract downsampled key waypoints for logging/plotting
-        if len(self.path_coords) > 2:
-            filtered_indices = [0]
-            accum = 0.0
-            for k in range(1, len(self.path_coords) - 1):
-                p_prev = self.path_coords[k - 1]
-                p_curr = self.path_coords[k]
-                p_next = self.path_coords[k + 1]
-                v1 = p_curr - p_prev
-                v2 = p_next - p_curr
-                l1 = np.linalg.norm(v1)
-                l2 = np.linalg.norm(v2)
-                accum += l1
-                is_corner = False
-                if l1 > 0.1 and l2 > 0.1:
-                    cos_theta = np.dot(v1, v2) / (l1 * l2)
-                    if cos_theta < 0.7:  # Turn angle > 45 deg
-                        is_corner = True
-
-                if accum >= self.lookahead_dist or is_corner:
-                    filtered_indices.append(k)
-                    accum = 0.0
-
-            if filtered_indices[-1] != len(self.path_coords) - 1:
-                filtered_indices.append(len(self.path_coords) - 1)
-
-            self.waypoint_coords = [self.path_coords[k] for k in filtered_indices]
-            self.waypoints = [self.path_latents[k] for k in filtered_indices]
-        else:
-            self.waypoint_coords = list(self.path_coords)
-            self.waypoints = list(self.path_latents)
+        self.goal_z, self.current_path_idx, self.pos_history, self.stuck_count = goal_z, 0, [], 0
+        self.waypoint_coords, self.waypoints = _extract_corner_waypoints(self.path_coords, self.path_latents, self.lookahead_dist)
 
         curr_c = self.waypoint_coords[0] if self.waypoint_coords else None
         self.last_subgoal_info = {
@@ -288,64 +243,30 @@ class BufferGraphPlanner(BasePlanner):
             self.reset(obs, goal_z)
 
         obs_xy = np.asarray(obs[:2])
-
-        # 1. Advance along path (anti-jump local search window [idx-2, idx+4])
-        search_start = max(0, self.current_path_idx - 2)
-        search_end = min(len(self.path_coords), self.current_path_idx + 5)
-        local_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(search_start, search_end)]
-        min_offset = int(np.argmin(local_dists))
-        best_idx = search_start + min_offset
-        min_dist_to_path = local_dists[min_offset]
-
-        # 2. Dynamic re-routing if agent wanders into another corridor (> 4.8 units)
-        if min_dist_to_path > 4.8 and len(self.path_coords) > 2:
+        best_idx, min_dist = _track_local_path_index(obs_xy, self.path_coords, self.current_path_idx, max_window=7)
+        if min_dist > 4.8 and len(self.path_coords) > 2:
             self.reset(obs, goal_z)
             best_idx = 0
-
         self.current_path_idx = best_idx
 
-        # 3. Look ahead by `lookahead_dist` along the topological path
-        accum = 0.0
-        target_idx = self.current_path_idx
+        accum, target_idx = 0.0, self.current_path_idx
         while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
             accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
             target_idx += 1
 
         dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+        target_latent = self.goal_z if (target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2) else self.path_latents[target_idx]
+        target_xy = self.path_coords[-1] if (target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2) else self.path_coords[target_idx]
+        is_goal = bool(target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2)
 
-        # 4. Select target latent (direct goal handover when near terminal zone)
-        if target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2:
-            target_latent = self.goal_z
-            target_xy = self.path_coords[-1]
-            is_goal = True
-        else:
-            target_latent = self.path_latents[target_idx]
-            target_xy = self.path_coords[target_idx]
-            is_goal = False
-
-        # 5. Stuck detection
-        self.pos_history.append(obs_xy.copy())
-        if len(self.pos_history) > 40:
-            self.pos_history.pop(0)
-
-        is_stuck = False
-        if len(self.pos_history) >= 40 and dist_to_final > 1.8:
-            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
-                is_stuck = True
-                self.stuck_count += 1
-            else:
-                self.stuck_count = max(0, self.stuck_count - 1)
-
-        # Force re-plan if stuck in place for > 45 steps
+        is_stuck, self.stuck_count = _check_stuck_state(self.pos_history, obs_xy, dist_to_final, self.stuck_count)
         if self.stuck_count > 45:
             self.reset(obs, goal_z)
             self.stuck_count = 0
 
         eval_temp = 0.25 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-
-        action, subgoal_z = _jit_baseline_step(self.agent, jnp.asarray(obs), target_latent, seed=seed_k, temperature=eval_temp)
-
+        action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), target_latent, seed=seed_k, temperature=eval_temp)
         self.last_subgoal_info = {
             "subgoal_xy": [float(target_xy[0]), float(target_xy[1])],
             "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
@@ -354,118 +275,62 @@ class BufferGraphPlanner(BasePlanner):
         return np.asarray(action)
 
     def get_subgoal_latent(self, obs, goal_z, step=0):
-        """Returns the optimal target subgoal latent for the current state and goal."""
         self.reset(obs, goal_z)
-
-        obs_xy = np.asarray(obs[:2])
-        search_start = max(0, self.current_path_idx - 2)
-        search_end = min(len(self.path_coords), self.current_path_idx + 5)
-        local_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(search_start, search_end)]
-        self.current_path_idx = search_start + int(np.argmin(local_dists))
-
-        accum = 0.0
-        target_idx = self.current_path_idx
+        self.current_path_idx, _ = _track_local_path_index(np.asarray(obs[:2]), self.path_coords, self.current_path_idx, max_window=7)
+        accum, target_idx = 0.0, self.current_path_idx
         while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
             accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
             target_idx += 1
+        return np.asarray(self.goal_z) if (target_idx >= len(self.path_coords) - 1 or float(np.linalg.norm(np.asarray(obs[:2]) - self.path_coords[-1])) <= 2.2) else np.asarray(self.path_latents[target_idx])
 
-        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
-        if target_idx >= len(self.path_coords) - 1 or dist_to_final <= 2.2:
-            return np.asarray(self.goal_z)
-        return np.asarray(self.path_latents[target_idx])
 
+# ==============================================================================
+# Recursive Bisection & PyTorch Distilled Planners
+# ==============================================================================
 
 class RecursiveBisectionPlanner(BasePlanner):
     def __init__(self, agent, dataset_states, max_depth=2, n_candidates=200, hit_threshold=35.0, name="Recursive Bisection"):
         super().__init__(agent, name=name)
-        self.max_depth = max_depth
+        self.max_depth, self.hit_threshold = max_depth, hit_threshold
         self.n_candidates = min(n_candidates, len(dataset_states))
-        self.hit_threshold = hit_threshold
-
-        rng = np.random.default_rng(42)
-        idxs = rng.choice(len(dataset_states), size=self.n_candidates, replace=False)
+        idxs = np.random.default_rng(42).choice(len(dataset_states), size=self.n_candidates, replace=False)
         self.candidate_states = jnp.asarray(dataset_states[idxs])
         self.candidate_coords = np.asarray(dataset_states[idxs][:, :2])
-        self.candidate_latents = jnp.asarray(
-            agent.normalize_z(agent.network.select("backward_repr")(self.candidate_states))
-        )
-        self.cached_latent = None
-        self.cached_coord = None
-        self.steps_on_latent = 0
+        self.candidate_latents = jnp.asarray(agent.normalize_z(agent.network.select("backward_repr")(self.candidate_states)))
+        self.cached_latent, self.cached_coord, self.steps_on_latent = None, None, 0
 
-    def _find_midpoint_fast(self, obs, goal_latent):
-        obs_exp = jnp.broadcast_to(obs[None, :], (self.candidate_states.shape[0], obs.shape[0]))
-        r_sw = _jit_batch_reach(self.agent, obs_exp, self.candidate_latents)
-
-        g_exp = jnp.broadcast_to(goal_latent[None, :], (self.candidate_states.shape[0], goal_latent.shape[0]))
-        r_wg = _jit_batch_reach(self.agent, self.candidate_states, g_exp)
-
-        scores = jnp.log(jnp.maximum(1e-4, r_sw)) + jnp.log(jnp.maximum(1e-4, r_wg))
-        best_idx = int(jnp.argmax(scores))
+    def _find_midpoint(self, obs, goal_latent):
+        r_sw = _jit_batch_reach(self.agent, jnp.broadcast_to(obs[None, :], (self.candidate_states.shape[0], obs.shape[0])), self.candidate_latents)
+        r_wg = _jit_batch_reach(self.agent, self.candidate_states, jnp.broadcast_to(goal_latent[None, :], (self.candidate_states.shape[0], goal_latent.shape[0])))
+        best_idx = int(jnp.argmax(jnp.log(jnp.maximum(1e-4, r_sw)) + jnp.log(jnp.maximum(1e-4, r_wg))))
         self.cached_coord = self.candidate_coords[best_idx].tolist()
         return self.candidate_latents[best_idx]
 
     def reset(self, obs, goal_latent):
-        self.cached_latent = self._find_midpoint_fast(jnp.asarray(obs), jnp.asarray(goal_latent))
+        self.cached_latent = self._find_midpoint(jnp.asarray(obs), jnp.asarray(goal_latent))
         self.steps_on_latent = 0
-        self.last_subgoal_info = {
-            "subgoal_xy": self.cached_coord,
-            "waypoints_xy": [self.cached_coord] if self.cached_coord else [],
-            "is_direct_goal": False,
-        }
+        self.last_subgoal_info = {"subgoal_xy": self.cached_coord, "waypoints_xy": [self.cached_coord] if self.cached_coord else [], "is_direct_goal": False}
 
     def sample_action(self, obs, goal_latent, step=0, seed=None, temperature=0.0):
-        obs_jnp = jnp.asarray(obs)
-        goal_jnp = jnp.asarray(goal_latent)
-
         if self.cached_latent is None:
             self.reset(obs, goal_latent)
-
-        r_curr = float(_jit_batch_reach(self.agent, obs_jnp[None, :], self.cached_latent[None, :])[0])
+        r_curr = float(_jit_batch_reach(self.agent, jnp.asarray(obs)[None, :], self.cached_latent[None, :])[0])
         self.steps_on_latent += 1
         if r_curr >= self.hit_threshold or self.steps_on_latent > 60:
             self.reset(obs, goal_latent)
-
-        action, _ = _jit_actor_from_latent(self.agent, obs_jnp, self.cached_latent)
-        self.last_subgoal_info = {
-            "subgoal_xy": self.cached_coord,
-            "waypoints_xy": [self.cached_coord] if self.cached_coord else [],
-            "is_direct_goal": False,
-        }
+        action, _ = _jit_actor_from_latent(self.agent, jnp.asarray(obs), self.cached_latent)
+        self.last_subgoal_info = {"subgoal_xy": self.cached_coord, "waypoints_xy": [self.cached_coord] if self.cached_coord else [], "is_direct_goal": False}
         return np.asarray(action)
 
 
 class DistilledMLPPlanner(BasePlanner):
-    def __init__(
-        self,
-        agent,
-        model_type="dense_eca",
-        checkpoint_path=None,
-        hidden_dim=256,
-        n_layers=3,
-        num_heads=4,
-        device="cpu",
-        name=None,
-    ):
-        name = name or f"Distilled ({model_type})"
-        super().__init__(agent, name=name)
-        obs_dim = 29
-        latent_dim = agent.config["latent_dim"]
+    def __init__(self, agent, model_type="dense_eca", checkpoint_path=None, hidden_dim=256, n_layers=3, num_heads=4, device="cpu", name=None):
+        super().__init__(agent, name=name or f"Distilled ({model_type})")
         self.device = torch.device(device)
-        torch.set_num_threads(1)
-
-        self.model = build_student_model(
-            model_type=model_type,
-            obs_dim=obs_dim,
-            latent_dim=latent_dim,
-            hidden_dim=hidden_dim,
-            n_layers=n_layers,
-            num_heads=num_heads,
-        )
+        self.model = build_student_model(model_type, 29, agent.config["latent_dim"], hidden_dim, n_layers, num_heads)
         if checkpoint_path and os.path.exists(checkpoint_path):
             self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
-        self.model.to(self.device)
-        self.model.eval()
+        self.model.to(self.device).eval()
         self.pos_history = []
 
     def reset(self, obs, goal_latent):
@@ -477,67 +342,83 @@ class DistilledMLPPlanner(BasePlanner):
         self.pos_history.append(obs_xy.copy())
         if len(self.pos_history) > 40:
             self.pos_history.pop(0)
-
-        is_stuck = False
-        if len(self.pos_history) >= 40:
-            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
-                is_stuck = True
-
+        is_stuck = bool(len(self.pos_history) >= 40 and float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4)
         eval_temp = 0.2 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
 
-        x = np.concatenate([obs, np.asarray(goal_latent)], axis=-1).astype(np.float32)
+        inp = torch.from_numpy(np.concatenate([obs, np.asarray(goal_latent)], axis=-1).astype(np.float32)).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            inp = torch.from_numpy(x).unsqueeze(0).to(self.device)
             pred_z = self.model(inp).squeeze(0).cpu().numpy()
-
         action, _ = _jit_baseline_step(self.agent, jnp.asarray(obs), jnp.asarray(pred_z), seed=seed_k, temperature=eval_temp)
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)
 
 
+class SequenceWaypointAttentionPlanner(BufferGraphPlanner):
+    """Standard Sequence-Aware Attention Translator."""
+    def __init__(self, agent, dataset_observations, checkpoint_path, n_landmarks=1000, max_edge_radius=3.5, reachability_cutoff=35.0, lookahead_dist=2.6, max_seq_len=16, hidden_dim=256, num_heads=4, n_layers=2, name="Dijkstra + Sequence Attention"):
+        super().__init__(agent, dataset_observations, n_landmarks, max_edge_radius, reachability_cutoff, lookahead_dist, name)
+        with open(checkpoint_path, "rb") as f:
+            data = pickle.load(f)
+            self.seq_params = flax.core.freeze(data["params"])
+            cfg = data.get("config", {})
+            h_dim, n_heads, n_lay, m_len = cfg.get("hidden_dim", hidden_dim), cfg.get("num_heads", num_heads), cfg.get("n_layers", n_layers), cfg.get("max_seq_len", max_seq_len)
+        self.max_seq_len = m_len
+        self.seq_translator_def = FlaxSequenceWaypointAttentionTranslator(latent_dim=agent.config["latent_dim"], hidden_dim=h_dim, num_heads=n_heads, max_seq_len=m_len, n_layers=n_lay)
+
+        @functools.partial(jax.jit, static_argnames=("temp",))
+        def _fused_step(obs_jnp, seq_jnp, mask_jnp, params, seed_k=None, temp=0.0):
+            z_cmd = self.seq_translator_def.apply({"params": params}, obs_jnp[None, :], seq_jnp[None, :, :], mask_jnp[None, :])[0]
+            act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
+            a = act_dist.mode() if (temp == 0.0 or seed_k is None) else act_dist.sample(seed=seed_k)
+            return jnp.clip(a[0], -1.0, 1.0), z_cmd
+        self._fused_seq_step = _fused_step
+
+    def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
+        if not self.path_coords:
+            self.reset(obs, goal_z)
+        self.current_path_idx, _ = _track_local_path_index(np.asarray(obs[:2]), self.path_coords, self.current_path_idx, max_window=7)
+        accum, target_idx = 0.0, self.current_path_idx
+        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
+            target_idx += 1
+
+        dist_final = float(np.linalg.norm(np.asarray(obs[:2]) - self.path_coords[-1]))
+        future_latents = [goal_z] if dist_final < 1.8 else (self.path_latents[target_idx:] + [goal_z])
+        K = min(len(future_latents), self.max_seq_len)
+        pad_seq = np.zeros((self.max_seq_len, self.agent.config["latent_dim"]), dtype=np.float32)
+        seq_mask = np.zeros(self.max_seq_len, dtype=bool)
+        for i in range(K):
+            pad_seq[i], seq_mask[i] = future_latents[i], True
+
+        curr_c = self.path_coords[-1] if dist_final < 1.8 else self.path_coords[target_idx]
+        self.last_subgoal_info = {"subgoal_xy": [float(curr_c[0]), float(curr_c[1])], "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords], "is_direct_goal": bool(dist_final < 1.8)}
+        action, _ = self._fused_seq_step(jnp.asarray(obs), jnp.asarray(pad_seq), jnp.asarray(seq_mask), self.seq_params, jax.random.PRNGKey(step) if temperature > 0 else seed, temperature)
+        return np.asarray(action)
+
+
+# ==============================================================================
+# Distilled JAX & Waypoint Translators
+# ==============================================================================
+
 class DistilledJAXPlanner(BasePlanner):
-    def __init__(
-        self,
-        agent,
-        model_type="gated_attn",
-        checkpoint_path=None,
-        hidden_dim=256,
-        n_layers=3,
-        name=None,
-    ):
+    def __init__(self, agent, model_type="gated_attn", checkpoint_path=None, hidden_dim=256, n_layers=3, name=None):
         name = name or f"Distilled JAX ({model_type})"
         super().__init__(agent, name=name)
-        from src.jax_distillation import build_flax_translator
-        self.student_def = build_flax_translator(
-            model_type=model_type,
-            latent_dim=agent.config["latent_dim"],
-            hidden_dim=hidden_dim,
-            n_layers=n_layers,
-        )
+        self.student_def = build_flax_translator(model_type=model_type, latent_dim=agent.config["latent_dim"], hidden_dim=hidden_dim, n_layers=n_layers)
         if checkpoint_path and os.path.exists(checkpoint_path):
-            import pickle
             with open(checkpoint_path, "rb") as f:
-                data = pickle.load(f)
-                self.params = flax.core.freeze(data["params"])
+                self.params = flax.core.freeze(pickle.load(f)["params"])
         else:
-            rng = jax.random.PRNGKey(0)
-            dummy_s = jnp.zeros((1, 29))
-            dummy_g = jnp.zeros((1, agent.config["latent_dim"]))
-            self.params = self.student_def.init(rng, dummy_s, dummy_g)["params"]
+            self.params = self.student_def.init(jax.random.PRNGKey(0), jnp.zeros((1, 29)), jnp.zeros((1, agent.config["latent_dim"])))["params"]
 
         self.pos_history = []
-
         @functools.partial(jax.jit, static_argnames=("temp",))
         def _fused_step(obs_jnp, goal_jnp, params, seed_k=None, temp=0.0):
             z_cmd = self.student_def.apply({"params": params}, obs_jnp[None, :], goal_jnp[None, :])[0]
             act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
-            if temp == 0.0 or seed_k is None:
-                a = act_dist.mode()
-            else:
-                a = act_dist.sample(seed=seed_k)
+            a = act_dist.mode() if (temp == 0.0 or seed_k is None) else act_dist.sample(seed=seed_k)
             return jnp.clip(a[0], -1.0, 1.0), z_cmd
-
         self._fused_step = _fused_step
 
     def reset(self, obs=None, goal_latent=None):
@@ -549,50 +430,18 @@ class DistilledJAXPlanner(BasePlanner):
         self.pos_history.append(obs_xy.copy())
         if len(self.pos_history) > 40:
             self.pos_history.pop(0)
-
-        is_stuck = False
-        if len(self.pos_history) >= 40:
-            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
-                is_stuck = True
-
+        is_stuck = bool(len(self.pos_history) >= 40 and float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4)
         eval_temp = 0.2 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-
-        action, pred_z = self._fused_step(
-            jnp.asarray(obs), jnp.asarray(goal_latent), self.params, seed_k, eval_temp
-        )
+        action, _ = self._fused_step(jnp.asarray(obs), jnp.asarray(goal_latent), self.params, seed_k, eval_temp)
         self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
         return np.asarray(action)
 
 
 class WaypointTranslatorPlanner(BufferGraphPlanner):
-    """
-    Combines global topological Dijkstra planning with a learned Direct Waypoint Translator:
-    Dijkstra computes topological next waypoint w_1 -> Translator predicts z_cmd for low-level actor.
-    """
-    def __init__(
-        self,
-        agent,
-        dataset_observations,
-        checkpoint_path,
-        n_landmarks=1000,
-        max_edge_radius=3.5,
-        reachability_cutoff=35.0,
-        lookahead_dist=2.6,
-        hidden_dim=256,
-        n_layers=3,
-        name="Dijkstra + Waypoint Translator",
-    ):
-        super().__init__(
-            agent=agent,
-            dataset_states=dataset_observations,
-            n_landmarks=n_landmarks,
-            max_edge_radius=max_edge_radius,
-            reachability_cutoff=reachability_cutoff,
-            lookahead_dist=lookahead_dist,
-            name=name,
-        )
-        import pickle
+    """Combines topological Dijkstra planning with learned FlaxSingleWaypointTranslator."""
+    def __init__(self, agent, dataset_observations, checkpoint_path, n_landmarks=1000, max_edge_radius=3.5, reachability_cutoff=35.0, lookahead_dist=2.6, hidden_dim=256, n_layers=3, name="Dijkstra + Waypoint Translator"):
+        super().__init__(agent, dataset_observations, n_landmarks, max_edge_radius, reachability_cutoff, lookahead_dist, name)
         with open(checkpoint_path, "rb") as f:
             data = pickle.load(f)
             self.translator_params = flax.core.freeze(data["params"])
@@ -600,253 +449,105 @@ class WaypointTranslatorPlanner(BufferGraphPlanner):
             h_dim = cfg.get("hidden_dim", hidden_dim)
             n_lay = cfg.get("n_layers", n_layers)
 
-        from src.waypoint_translators import FlaxSingleWaypointTranslator
-        self.translator_def = FlaxSingleWaypointTranslator(
-            latent_dim=agent.config["latent_dim"],
-            hidden_dim=h_dim,
-            n_layers=n_lay,
-        )
-
+        self.translator_def = FlaxSingleWaypointTranslator(latent_dim=agent.config["latent_dim"], hidden_dim=h_dim, n_layers=n_lay)
         @functools.partial(jax.jit, static_argnames=("temp",))
         def _fused_step(obs_jnp, w1_jnp, params, seed_k=None, temp=0.0):
             z_cmd = self.translator_def.apply({"params": params}, obs_jnp[None, :], w1_jnp[None, :])[0]
             act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
-            if temp == 0.0 or seed_k is None:
-                a = act_dist.mode()
-            else:
-                a = act_dist.sample(seed=seed_k)
+            a = act_dist.mode() if (temp == 0.0 or seed_k is None) else act_dist.sample(seed=seed_k)
             return jnp.clip(a[0], -1.0, 1.0), z_cmd
-
         self._fused_step = _fused_step
 
     def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
         if not self.path_coords:
             self.reset(obs, goal_z)
-
-        obs_xy = np.asarray(obs[:2])
-        search_end = min(len(self.path_coords), self.current_path_idx + 12)
-        window_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(self.current_path_idx, search_end)]
-        best_offset = int(np.argmin(window_dists))
-        self.current_path_idx += best_offset
-
-        accum = 0.0
-        target_idx = self.current_path_idx
+        self.current_path_idx, _ = _track_local_path_index(np.asarray(obs[:2]), self.path_coords, self.current_path_idx, max_window=12)
+        accum, target_idx = 0.0, self.current_path_idx
         while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
             accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
             target_idx += 1
 
-        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
-        if dist_to_final < 1.8:
-            target_latent = goal_z
-            is_direct = True
-            curr_c = self.path_coords[-1]
-        else:
-            target_latent = self.path_latents[target_idx]
-            is_direct = False
-            curr_c = self.path_coords[target_idx]
-
-        self.last_subgoal_info = {
-            "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
-            "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
-            "is_direct_goal": is_direct,
-        }
-
-        eval_temp = temperature
-        seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-        action, _ = self._fused_step(
-            jnp.asarray(obs), jnp.asarray(target_latent), self.translator_params, seed_k, eval_temp
-        )
+        dist_final = float(np.linalg.norm(np.asarray(obs[:2]) - self.path_coords[-1]))
+        target_latent = goal_z if dist_final < 1.8 else self.path_latents[target_idx]
+        curr_c = self.path_coords[-1] if dist_final < 1.8 else self.path_coords[target_idx]
+        self.last_subgoal_info = {"subgoal_xy": [float(curr_c[0]), float(curr_c[1])], "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords], "is_direct_goal": bool(dist_final < 1.8)}
+        seed_k = jax.random.PRNGKey(step) if temperature > 0 else seed
+        action, _ = self._fused_step(jnp.asarray(obs), jnp.asarray(target_latent), self.translator_params, seed_k, temperature)
         return np.asarray(action)
 
+
+# ==============================================================================
+# Enhanced Sequence Waypoint Attention Planner (Best SOTA Method)
+# ==============================================================================
+
 class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
-    """
-    Enhanced Sequence-Aware Waypoint Attention Planner:
-    - ALiBi / Distance-Decay Cross-Attention for strict spatial localization
-    - Local-Global Windowing (immediate window + terminal token)
-    - 2D Curvature / Turn geometric token encoding
-    - Multi-Head Attention Trajectory Contextualization
-    """
-    def __init__(
-        self,
-        agent,
-        dataset_observations,
-        checkpoint_path,
-        n_landmarks=1000,
-        max_edge_radius=3.5,
-        reachability_cutoff=35.0,
-        lookahead_dist=2.6,
-        max_seq_len=16,
-        hidden_dim=384,
-        num_heads=6,
-        n_layers=3,
-        dropout_rate=0.2,
-        alibi_slope=0.4,
-        local_window_size=6,
-        name="Dijkstra + Enhanced Sequence Attention Translator",
-    ):
-        super().__init__(
-            agent=agent,
-            dataset_states=dataset_observations,
-            n_landmarks=n_landmarks,
-            max_edge_radius=max_edge_radius,
-            reachability_cutoff=reachability_cutoff,
-            lookahead_dist=lookahead_dist,
-            name=name,
-        )
-        import pickle
+    """Dijkstra Planner paired with Enhanced ALiBi Sequence Attention Transformer."""
+    def __init__(self, agent, dataset_observations, checkpoint_path, n_landmarks=1000, max_edge_radius=3.5, reachability_cutoff=35.0, lookahead_dist=2.6, max_seq_len=16, hidden_dim=384, num_heads=6, n_layers=3, dropout_rate=0.2, alibi_slope=0.4, local_window_size=6, name="Dijkstra + Enhanced Sequence Attention Translator"):
+        super().__init__(agent, dataset_observations, n_landmarks, max_edge_radius, reachability_cutoff, lookahead_dist, name)
         with open(checkpoint_path, "rb") as f:
             data = pickle.load(f)
             self.seq_params = flax.core.freeze(data["params"])
             cfg = data.get("config", {})
-            h_dim = cfg.get("hidden_dim", hidden_dim)
-            n_heads = cfg.get("num_heads", num_heads)
-            n_lay = cfg.get("n_layers", n_layers)
-            m_len = cfg.get("max_seq_len", max_seq_len)
-            d_rate = cfg.get("dropout_rate", dropout_rate)
-            a_slope = cfg.get("alibi_slope", alibi_slope)
-            w_size = cfg.get("local_window_size", local_window_size)
+            h_dim, n_heads, n_lay, m_len = cfg.get("hidden_dim", hidden_dim), cfg.get("num_heads", num_heads), cfg.get("n_layers", n_layers), cfg.get("max_seq_len", max_seq_len)
+            d_rate, a_slope, w_size = cfg.get("dropout_rate", dropout_rate), cfg.get("alibi_slope", alibi_slope), cfg.get("local_window_size", local_window_size)
 
         self.max_seq_len = m_len
-        from src.waypoint_translators import FlaxEnhancedSequenceWaypointAttentionTranslator
-        self.seq_translator_def = FlaxEnhancedSequenceWaypointAttentionTranslator(
-            latent_dim=agent.config["latent_dim"],
-            hidden_dim=h_dim,
-            num_heads=n_heads,
-            max_seq_len=m_len,
-            n_layers=n_lay,
-            dropout_rate=d_rate,
-            alibi_slope=a_slope,
-            local_window_size=w_size,
-        )
+        self.seq_translator_def = FlaxEnhancedSequenceWaypointAttentionTranslator(latent_dim=agent.config["latent_dim"], hidden_dim=h_dim, num_heads=n_heads, max_seq_len=m_len, n_layers=n_lay, dropout_rate=d_rate, alibi_slope=a_slope, local_window_size=w_size)
 
         @functools.partial(jax.jit, static_argnames=("temp",))
-        def _fused_enhanced_seq_step(obs_jnp, seq_jnp, mask_jnp, curv_jnp, params, seed_k=None, temp=0.0):
-            z_cmd = self.seq_translator_def.apply(
-                {"params": params},
-                obs_jnp[None, :],
-                seq_jnp[None, :, :],
-                mask_jnp[None, :],
-                curv_jnp[None, :, :],
-                deterministic=True,
-            )[0]
+        def _fused_step(obs_jnp, seq_jnp, mask_jnp, curv_jnp, params, seed_k=None, temp=0.0):
+            z_cmd = self.seq_translator_def.apply({"params": params}, obs_jnp[None, :], seq_jnp[None, :, :], mask_jnp[None, :], curv_jnp[None, :, :], deterministic=True)[0]
             act_dist = agent.network.select("actor")(obs_jnp[None, :], z_cmd[None, :], goal_encoded=True, temperature=temp)
-            if temp == 0.0 or seed_k is None:
-                a = act_dist.mode()
-            else:
-                a = act_dist.sample(seed=seed_k)
+            a = act_dist.mode() if (temp == 0.0 or seed_k is None) else act_dist.sample(seed=seed_k)
             return jnp.clip(a[0], -1.0, 1.0), z_cmd
+        self._fused_enhanced_seq_step = _fused_step
 
-        self._fused_enhanced_seq_step = _fused_enhanced_seq_step
+    def _prepare_sequence_inputs(self, obs_xy, goal_z):
+        best_idx, min_dist = _track_local_path_index(obs_xy, self.path_coords, self.current_path_idx, max_window=7)
+        if min_dist > 4.8 and len(self.path_coords) > 2:
+            self.reset(np.concatenate([obs_xy, np.zeros(27)]), goal_z)
+            best_idx = 0
+        self.current_path_idx = best_idx
+
+        accum, target_idx = 0.0, self.current_path_idx
+        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
+            target_idx += 1
+
+        dist_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
+        if dist_final < 1.8:
+            future_latents, future_coords, is_direct = [goal_z], [self.path_coords[-1]], True
+        else:
+            future_latents = self.path_latents[target_idx:] + [goal_z]
+            future_coords = self.path_coords[target_idx:] + [self.path_coords[-1]]
+            is_direct = False
+
+        curvs = _extract_curvature_angles(future_coords)
+        K = min(len(future_latents), self.max_seq_len)
+        pad_seq = np.zeros((self.max_seq_len, self.agent.config["latent_dim"]), dtype=np.float32)
+        seq_mask = np.zeros(self.max_seq_len, dtype=bool)
+        curv_arr = np.ones((self.max_seq_len, 1), dtype=np.float32)
+        for i in range(K):
+            pad_seq[i], seq_mask[i] = future_latents[i], True
+            if i < len(curvs):
+                curv_arr[i, 0] = curvs[i]
+
+        curr_c = self.path_coords[-1] if is_direct else self.path_coords[target_idx]
+        return pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final
 
     def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
         if not self.path_coords:
             self.reset(obs, goal_z)
-
         obs_xy = np.asarray(obs[:2])
+        pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final = self._prepare_sequence_inputs(obs_xy, goal_z)
 
-        # 1. Anti-jump local window tracking: search [idx-2, idx+4]
-        search_start = max(0, self.current_path_idx - 2)
-        search_end = min(len(self.path_coords), self.current_path_idx + 5)
-        local_dists = [np.linalg.norm(obs_xy - self.path_coords[k]) for k in range(search_start, search_end)]
-        min_offset = int(np.argmin(local_dists))
-        best_idx = search_start + min_offset
-        min_dist_to_path = local_dists[min_offset]
-
-        # 2. Dynamic re-routing if agent wanders into another corridor (> 4.8 units)
-        if min_dist_to_path > 4.8 and len(self.path_coords) > 2:
-            self.reset(obs, goal_z)
-            best_idx = 0
-
-        self.current_path_idx = best_idx
-
-        # 3. Lookahead along topological path
-        accum = 0.0
-        target_idx = self.current_path_idx
-        N_pts = len(self.path_coords)
-        while target_idx < N_pts - 1 and accum < self.lookahead_dist:
-            accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
-            target_idx += 1
-
-        dist_to_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
-
-        # 4. Multi-waypoint sequence construction with terminal goal
-        if target_idx >= N_pts - 1 or dist_to_final <= 2.2:
-            future_latents = [goal_z]
-            future_coords = [self.path_coords[-1]]
-            curr_c = self.path_coords[-1]
-            is_direct = True
-        else:
-            future_latents = self.path_latents[target_idx:] + [goal_z]
-            future_coords = self.path_coords[target_idx:]
-            curr_c = self.path_coords[target_idx]
-            is_direct = False
-
-        # 5. Compute 2D Turn / Curvature angles cos(theta_k)
-        K_raw = len(future_coords)
-        curvs_list = []
-        for k in range(K_raw):
-            if k + 2 < K_raw:
-                v1 = future_coords[k + 1] - future_coords[k]
-                v2 = future_coords[k + 2] - future_coords[k + 1]
-                l1 = np.linalg.norm(v1)
-                l2 = np.linalg.norm(v2)
-                if l1 > 1e-4 and l2 > 1e-4:
-                    cos_th = float(np.dot(v1, v2) / (l1 * l2))
-                    curvs_list.append(np.clip(cos_th, -1.0, 1.0))
-                else:
-                    curvs_list.append(1.0)
-            else:
-                curvs_list.append(1.0)
-
-        # Pad to max_seq_len
-        K = min(len(future_latents), self.max_seq_len)
-        padded_seq = np.zeros((self.max_seq_len, self.agent.config["latent_dim"]), dtype=np.float32)
-        seq_mask = np.zeros(self.max_seq_len, dtype=bool)
-        curvatures = np.ones((self.max_seq_len, 1), dtype=np.float32)
-
-        for i in range(K):
-            padded_seq[i] = future_latents[i]
-            seq_mask[i] = True
-            if i < len(curvs_list):
-                curvatures[i, 0] = curvs_list[i]
-
-        # 6. Stuck detection and stochastic breakout
-        self.pos_history.append(obs_xy.copy())
-        if len(self.pos_history) > 40:
-            self.pos_history.pop(0)
-
-        is_stuck = False
-        if len(self.pos_history) >= 40 and dist_to_final > 1.8:
-            if float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4:
-                is_stuck = True
-                self.stuck_count += 1
-            else:
-                self.stuck_count = max(0, self.stuck_count - 1)
-
-        # Force re-plan if stuck in place for > 45 steps
+        is_stuck, self.stuck_count = _check_stuck_state(self.pos_history, obs_xy, dist_final, self.stuck_count)
         if self.stuck_count > 45:
             self.reset(obs, goal_z)
             self.stuck_count = 0
 
         eval_temp = 0.25 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-
-        self.last_subgoal_info = {
-            "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
-            "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
-            "is_direct_goal": is_direct,
-        }
-
-        action, _ = self._fused_enhanced_seq_step(
-            jnp.asarray(obs),
-            jnp.asarray(padded_seq),
-            jnp.asarray(seq_mask),
-            jnp.asarray(curvatures),
-            self.seq_params,
-            seed_k,
-            eval_temp,
-        )
+        self.last_subgoal_info = {"subgoal_xy": [float(curr_c[0]), float(curr_c[1])], "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords], "is_direct_goal": is_direct}
+        action, _ = self._fused_enhanced_seq_step(jnp.asarray(obs), jnp.asarray(pad_seq), jnp.asarray(seq_mask), jnp.asarray(curv_arr), self.seq_params, seed_k, eval_temp)
         return np.asarray(action)
-
-
-

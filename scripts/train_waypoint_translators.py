@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import time
@@ -13,7 +14,6 @@ import optax
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-# Root path setup
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -30,486 +30,118 @@ from src.waypoint_translators import (
 )
 
 
-def generate_waypoint_sequences_dataset(
-    agent,
-    train_obs: np.ndarray,
-    n_pairs: int = 60000,
-    noise_sigma: float = 0.05,
-    max_seq_len: int = 16,
-    lookahead_dist: float = 2.6,
-    split: str = "medium",
-    cache_path: str = None,
-    seed: int = 42,
-) -> Dict[str, np.ndarray]:
+def _extract_sequence_item(teacher, raw_start, final_goal_z, agent, noise_sigma, max_seq_len, lookahead_dist, rng):
+    teacher.reset(raw_start, final_goal_z)
+    path_len = len(teacher.path_coords)
+    t = int(rng.integers(0, max(path_len, 1)))
+    base_state = teacher.path_states[t] if t < len(teacher.path_states) else raw_start
+    s_t = (base_state + rng.normal(0.0, noise_sigma, size=base_state.shape)).astype(np.float32)
+
+    dist_to_final = float(np.linalg.norm(s_t[:2] - teacher.path_coords[-1]))
+    accum, target_idx = 0.0, t
+    while target_idx < path_len - 1 and accum < lookahead_dist:
+        accum += np.linalg.norm(teacher.path_coords[target_idx + 1] - teacher.path_coords[target_idx])
+        target_idx += 1
+
+    is_end = (target_idx >= path_len - 1 or dist_to_final <= 2.2)
+    target_latent = final_goal_z if is_end else teacher.path_latents[target_idx]
+    future_latents = [final_goal_z] if is_end else (teacher.path_latents[target_idx:] + [final_goal_z])
+    future_coords = [teacher.path_coords[-1]] if is_end else (teacher.path_coords[target_idx:] + [teacher.path_coords[-1]])
+
+    high_dist = agent.network.select("high_actor")(s_t[None, :], target_latent[None, :], goal_encoded=True, temperature=0.0)
+    z_target = np.asarray(agent.normalize_z(high_dist.mode())[0])
+
+    K = min(len(future_latents), max_seq_len)
+    wp_seq, seq_mask, curvs = np.zeros((max_seq_len, len(final_goal_z)), dtype=np.float32), np.zeros(max_seq_len, dtype=bool), np.ones((max_seq_len, 1), dtype=np.float32)
+    for k in range(K):
+        wp_seq[k], seq_mask[k] = future_latents[k], True
+        if k + 2 < len(future_coords):
+            v1, v2 = future_coords[k + 1] - future_coords[k], future_coords[k + 2] - future_coords[k + 1]
+            l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
+            curvs[k, 0] = float(np.clip(np.dot(v1, v2) / (l1 * l2), -1.0, 1.0)) if (l1 > 1e-4 and l2 > 1e-4) else 1.0
+    return s_t, wp_seq, seq_mask, curvs, target_latent, z_target
+
+
+def generate_waypoint_sequences_dataset(agent, train_obs, n_pairs=60000, noise_sigma=0.05, max_seq_len=16, lookahead_dist=2.6, split="medium", cache_path=None, seed=42):
     if cache_path and os.path.exists(cache_path):
-        print(f"Loading cached waypoint sequences dataset from {cache_path}...")
-        data = np.load(cache_path)
-        curvatures = data["curvatures"] if "curvatures" in data else np.ones((len(data["states"]), max_seq_len, 1), dtype=np.float32)
-        return {
-            "states": data["states"],
-            "wp_seqs": data["wp_seqs"],
-            "seq_masks": data["seq_masks"],
-            "curvatures": curvatures,
-            "w1_zs": data["w1_zs"],
-            "final_goals_z": data["final_goals_z"],
-            "z_targets": data["z_targets"],
-            "a_targets": data["a_targets"],
-        }
+        print(f"Loading cached dataset from {cache_path}...")
+        d = np.load(cache_path)
+        curvs = d["curvatures"] if "curvatures" in d else np.ones((len(d["states"]), max_seq_len, 1), dtype=np.float32)
+        return {k: d[k] for k in ["states", "wp_seqs", "seq_masks", "w1_zs", "final_goals_z", "z_targets", "a_targets"]} | {"curvatures": curvs}
 
-    n_landmarks = 2000 if split == "large" else 1000
-    print(f"Constructing Dijkstra teacher graph with {n_landmarks} landmarks on {len(train_obs)} observations...")
-    teacher = BufferGraphPlanner(
-        agent,
-        train_obs,
-        n_landmarks=n_landmarks,
-        max_edge_radius=3.5,
-        reachability_cutoff=35.0,
-        lookahead_dist=lookahead_dist,
-    )
-
-    print(f"Generating {n_pairs} multi-stage waypoint sequences with variable trajectory offsets (max_seq_len={max_seq_len}, noise={noise_sigma})...")
+    teacher = BufferGraphPlanner(agent, train_obs, n_landmarks=(2000 if split == "large" else 1000), lookahead_dist=lookahead_dist)
     rng = np.random.default_rng(seed)
-    s_idxs = rng.choice(len(train_obs), size=n_pairs)
-    g_idxs = rng.choice(len(train_obs), size=n_pairs)
+    s_idxs, g_idxs = rng.choice(len(train_obs), size=n_pairs), rng.choice(len(train_obs), size=n_pairs)
+    final_goals_z = np.asarray(agent.normalize_z(agent.network.select("backward_repr")(train_obs[g_idxs])))
 
-    raw_starts = train_obs[s_idxs]
-    raw_goals = train_obs[g_idxs]
-
-    final_goals_z = np.asarray(
-        agent.normalize_z(agent.network.select("backward_repr")(raw_goals))
+    states, wp_seqs, seq_masks, curvs, w1_zs, z_targets = (
+        np.zeros((n_pairs, train_obs.shape[-1]), np.float32), np.zeros((n_pairs, max_seq_len, agent.config["latent_dim"]), np.float32),
+        np.zeros((n_pairs, max_seq_len), bool), np.ones((n_pairs, max_seq_len, 1), np.float32),
+        np.zeros((n_pairs, agent.config["latent_dim"]), np.float32), np.zeros((n_pairs, agent.config["latent_dim"]), np.float32)
     )
 
-    latent_dim = agent.config["latent_dim"]
-    obs_dim = raw_starts.shape[-1]
+    for i in tqdm(range(n_pairs), desc="Dijkstra Multi-Stage Sequences"):
+        s_t, w_s, s_m, c_s, w1, zt = _extract_sequence_item(teacher, train_obs[s_idxs[i]], final_goals_z[i], agent, noise_sigma, max_seq_len, lookahead_dist, rng)
+        states[i], wp_seqs[i], seq_masks[i], curvs[i], w1_zs[i], z_targets[i] = s_t, w_s, s_m, c_s, w1, zt
 
-    states = np.zeros((n_pairs, obs_dim), dtype=np.float32)
-    wp_seqs = np.zeros((n_pairs, max_seq_len, latent_dim), dtype=np.float32)
-    seq_masks = np.zeros((n_pairs, max_seq_len), dtype=bool)
-    curvatures = np.ones((n_pairs, max_seq_len, 1), dtype=np.float32)
-    w1_zs = np.zeros((n_pairs, latent_dim), dtype=np.float32)
-    z_targets = np.zeros((n_pairs, latent_dim), dtype=np.float32)
-
-    for i in tqdm(range(n_pairs), desc="Dijkstra Multi-Stage Sequence Extraction"):
-        teacher.reset(raw_starts[i], final_goals_z[i])
-        path_len = len(teacher.path_coords)
-
-        # Sample random step index t along the planned trajectory [0, path_len-1]
-        t = int(rng.integers(0, max(path_len, 1)))
-
-        # State at step t + Gaussian noise for drift recovery
-        base_state = teacher.path_states[t] if t < len(teacher.path_states) else raw_starts[i]
-        noise = rng.normal(0.0, noise_sigma, size=base_state.shape).astype(np.float32)
-        s_t = (base_state + noise).astype(np.float32)
-        states[i] = s_t
-
-        obs_xy = s_t[:2]
-        dist_to_final = float(np.linalg.norm(obs_xy - teacher.path_coords[-1]))
-
-        # Lookahead along remaining path from step t
-        accum = 0.0
-        target_idx = t
-        while target_idx < path_len - 1 and accum < lookahead_dist:
-            accum += np.linalg.norm(teacher.path_coords[target_idx + 1] - teacher.path_coords[target_idx])
-            target_idx += 1
-
-        # Select target waypoint and future sequence
-        if target_idx >= path_len - 1 or dist_to_final <= 2.2:
-            target_latent = final_goals_z[i]
-            future_latents = [final_goals_z[i]]
-            future_coords = [teacher.path_coords[-1]]
-        else:
-            target_latent = teacher.path_latents[target_idx]
-            future_latents = teacher.path_latents[target_idx:] + [final_goals_z[i]]
-            future_coords = teacher.path_coords[target_idx:] + [teacher.path_coords[-1]]
-
-        # Compute ground truth intention z* via high_actor
-        high_dist = agent.network.select("high_actor")(
-            s_t[None, :], target_latent[None, :], goal_encoded=True, temperature=0.0
-        )
-        z_targets[i] = np.asarray(agent.normalize_z(high_dist.mode())[0])
-        w1_zs[i] = target_latent
-
-        # Compute 2D Turn / Curvature angles cos(theta_k)
-        K_coords = len(future_coords)
-        K = min(len(future_latents), max_seq_len)
-        for k in range(K):
-            wp_seqs[i, k] = future_latents[k]
-            seq_masks[i, k] = True
-            if k + 2 < K_coords:
-                v1 = future_coords[k + 1] - future_coords[k]
-                v2 = future_coords[k + 2] - future_coords[k + 1]
-                l1 = np.linalg.norm(v1)
-                l2 = np.linalg.norm(v2)
-                if l1 > 1e-4 and l2 > 1e-4:
-                    cos_th = float(np.dot(v1, v2) / (l1 * l2))
-                    curvatures[i, k, 0] = np.clip(cos_th, -1.0, 1.0)
-                else:
-                    curvatures[i, k, 0] = 1.0
-            else:
-                curvatures[i, k, 0] = 1.0
-
-    print("Computing target actions through frozen low-level actor...")
-    act_dist = agent.network.select("actor")(states, z_targets, goal_encoded=True, temperature=0.0)
-    a_targets = np.asarray(act_dist.mode())
-
-    dataset = {
-        "states": states,
-        "wp_seqs": wp_seqs,
-        "seq_masks": seq_masks,
-        "curvatures": curvatures,
-        "w1_zs": w1_zs,
-        "final_goals_z": final_goals_z,
-        "z_targets": z_targets,
-        "a_targets": a_targets,
-    }
-
+    a_targets = np.asarray(agent.network.select("actor")(states, z_targets, goal_encoded=True, temperature=0.0).mode())
+    dataset = {"states": states, "wp_seqs": wp_seqs, "seq_masks": seq_masks, "curvatures": curvs, "w1_zs": w1_zs, "final_goals_z": final_goals_z, "z_targets": z_targets, "a_targets": a_targets}
     if cache_path:
         os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
         np.savez_compressed(cache_path, **dataset)
-        print(f"Dataset cached to {cache_path}")
-
     return dataset
 
 
-@hydra.main(config_path="../configs", config_name="train_translator", version_base="1.3")
-def main(cfg: DictConfig):
-    print("=" * 80)
-    print(f"=== Training Waypoint Translator: Mode = {cfg.mode.upper()} on {cfg.split.upper()} ===")
-    print("=" * 80)
-    print(OmegaConf.to_yaml(cfg))
-
-    run_dir = os.getcwd()
-    print(f"Hydra Output Directory: {run_dir}")
-
-    # 1. MLflow tracking
-    mlflow_active = False
-    if cfg.use_mlflow:
-        try:
-            import mlflow
-            mlflow.set_experiment(f"waypoint_translators_{cfg.split}")
-            mlflow.start_run(run_name=f"{cfg.mode}_{cfg.split}")
-            mlflow.log_params(OmegaConf.to_container(cfg, resolve=True))
-            mlflow_active = True
-            print("MLflow tracking initialized.")
-        except Exception as e:
-            print(f"MLflow skipped: {e}")
-
-    # 2. Load agent & Dataset
-    agent, env, train_ds, _, _ = load_pretrained_agent(cfg.checkpoint_dir, cfg.split, seed=cfg.seed)
-
-    # Use a shared cache directory for datasets to save time across runs
-    cache_dir = os.path.join(PROJECT_ROOT, "outputs", "cache")
-    cache_path = os.path.join(cache_dir, f"wp_dataset_{cfg.split}_{cfg.n_pairs}p_k{cfg.max_seq_len}.npz")
-
-    dataset = generate_waypoint_sequences_dataset(
-        agent=agent,
-        train_obs=train_ds["observations"],
-        n_pairs=cfg.n_pairs,
-        noise_sigma=cfg.noise_sigma,
-        max_seq_len=cfg.max_seq_len,
-        lookahead_dist=cfg.lookahead_dist,
-        split=cfg.split,
-        cache_path=cache_path,
-        seed=cfg.seed,
-    )
-
-    N = len(dataset["states"])
-    n_train = int(0.9 * N)
-    n_val = N - n_train
-
-    train_data = {k: jnp.asarray(v[:n_train]) for k, v in dataset.items()}
-    val_data = {k: jnp.asarray(v[n_train:]) for k, v in dataset.items()}
-
-    # 3. Model Definition & Optimizer
-    latent_dim = agent.config["latent_dim"]
-    obs_dim = dataset["states"].shape[-1]
-
-    total_steps = (n_train // cfg.batch_size) * cfg.epochs
-    lr_schedule = optax.warmup_cosine_decay_schedule(
-        init_value=1e-5,
-        peak_value=cfg.lr,
-        warmup_steps=int(0.05 * total_steps),
-        decay_steps=total_steps,
-        end_value=1e-6,
-    )
-
-    def frozen_actor_fn(s, z, goal_encoded=True, temperature=0.0):
-        return agent.network.select("actor")(s, z, goal_encoded=goal_encoded, temperature=temperature)
-
-    def frozen_f_fn(s, z, goal_encoded=True):
-        return agent.network.select("forward_repr")(s, z, goal_encoded=goal_encoded)
-
-    def frozen_b_fn(g):
-        return agent.network.select("backward_repr")(g)
-
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4),
-    )
-
+def _setup_model_and_step_fn(cfg, obs_dim, latent_dim, frozen_fns, optimizer):
     is_enhanced = cfg.mode in ["enhanced_seq_attn", "enhanced_sequence_attn"]
-
     if cfg.mode == "single_wp":
-        model_def = FlaxSingleWaypointTranslator(
-            obs_dim=obs_dim,
-            latent_dim=latent_dim,
-            hidden_dim=cfg.hidden_dim,
-            n_layers=cfg.n_layers,
-        )
-        rng = jax.random.PRNGKey(cfg.seed)
-        dummy_s = jnp.zeros((1, obs_dim))
-        dummy_w = jnp.zeros((1, latent_dim))
-        params = model_def.init(rng, dummy_s, dummy_w)["params"]
-        opt_state = optimizer.init(params)
-        step_fn = make_single_wp_train_step(model_def.apply, frozen_actor_fn, frozen_f_fn, frozen_b_fn, optimizer)
-
-        @jax.jit
-        def eval_fn(p, val_batch):
-            pred_z = model_def.apply({"params": p}, val_batch["states"], val_batch["w1_zs"])
-            cos_sim = jnp.sum(pred_z * val_batch["z_targets"], axis=-1) / (
-                jnp.linalg.norm(pred_z, axis=-1) * jnp.linalg.norm(val_batch["z_targets"], axis=-1) + 1e-8
-            )
-            act_dist = frozen_actor_fn(val_batch["states"], pred_z, goal_encoded=True, temperature=0.0)
-            pred_a = act_dist.mode()
-            act_mse = jnp.mean((pred_a - val_batch["a_targets"]) ** 2)
-            return {"val_cos_sim": jnp.mean(cos_sim), "val_action_mse": act_mse}
-
+        m = FlaxSingleWaypointTranslator(obs_dim=obs_dim, latent_dim=latent_dim, hidden_dim=cfg.hidden_dim, n_layers=cfg.n_layers)
+        params = m.init(jax.random.PRNGKey(cfg.seed), jnp.zeros((1, obs_dim)), jnp.zeros((1, latent_dim)))["params"]
+        step_fn = make_single_wp_train_step(m.apply, frozen_fns["actor"], frozen_fns["f"], frozen_fns["b"], optimizer)
     elif cfg.mode == "sequence_attn":
-        model_def = FlaxSequenceWaypointAttentionTranslator(
-            obs_dim=obs_dim,
-            latent_dim=latent_dim,
-            hidden_dim=cfg.hidden_dim,
-            num_heads=cfg.num_heads,
-            max_seq_len=cfg.max_seq_len,
-            n_layers=cfg.n_layers,
-        )
-        rng = jax.random.PRNGKey(cfg.seed)
-        dummy_s = jnp.zeros((1, obs_dim))
-        dummy_seq = jnp.zeros((1, cfg.max_seq_len, latent_dim))
-        dummy_mask = jnp.ones((1, cfg.max_seq_len), dtype=bool)
-        params = model_def.init(rng, dummy_s, dummy_seq, dummy_mask)["params"]
-        opt_state = optimizer.init(params)
-        step_fn = make_sequence_wp_train_step(model_def.apply, frozen_actor_fn, frozen_f_fn, frozen_b_fn, optimizer)
-
-        @jax.jit
-        def eval_fn(p, val_batch):
-            pred_z = model_def.apply({"params": p}, val_batch["states"], val_batch["wp_seqs"], val_batch["seq_masks"])
-            cos_sim = jnp.sum(pred_z * val_batch["z_targets"], axis=-1) / (
-                jnp.linalg.norm(pred_z, axis=-1) * jnp.linalg.norm(val_batch["z_targets"], axis=-1) + 1e-8
-            )
-            act_dist = frozen_actor_fn(val_batch["states"], pred_z, goal_encoded=True, temperature=0.0)
-            pred_a = act_dist.mode()
-            act_mse = jnp.mean((pred_a - val_batch["a_targets"]) ** 2)
-            return {"val_cos_sim": jnp.mean(cos_sim), "val_action_mse": act_mse}
-
+        m = FlaxSequenceWaypointAttentionTranslator(obs_dim=obs_dim, latent_dim=latent_dim, hidden_dim=cfg.hidden_dim, num_heads=cfg.num_heads, max_seq_len=cfg.max_seq_len, n_layers=cfg.n_layers)
+        params = m.init(jax.random.PRNGKey(cfg.seed), jnp.zeros((1, obs_dim)), jnp.zeros((1, cfg.max_seq_len, latent_dim)), jnp.ones((1, cfg.max_seq_len), bool))["params"]
+        step_fn = make_sequence_wp_train_step(m.apply, frozen_fns["actor"], frozen_fns["f"], frozen_fns["b"], optimizer)
     elif is_enhanced:
-        dropout_rate = float(cfg.get("dropout_rate", 0.2))
-        alibi_slope = float(cfg.get("alibi_slope", 0.4))
-        local_window_size = int(cfg.get("local_window_size", 6))
-
-        model_def = FlaxEnhancedSequenceWaypointAttentionTranslator(
-            obs_dim=obs_dim,
-            latent_dim=latent_dim,
-            hidden_dim=cfg.hidden_dim,
-            num_heads=cfg.num_heads,
-            max_seq_len=cfg.max_seq_len,
-            n_layers=cfg.n_layers,
-            dropout_rate=dropout_rate,
-            alibi_slope=alibi_slope,
-            local_window_size=local_window_size,
-        )
+        m = FlaxEnhancedSequenceWaypointAttentionTranslator(obs_dim=obs_dim, latent_dim=latent_dim, hidden_dim=cfg.hidden_dim, num_heads=cfg.num_heads, max_seq_len=cfg.max_seq_len, n_layers=cfg.n_layers, dropout_rate=float(cfg.get("dropout_rate", 0.2)), alibi_slope=float(cfg.get("alibi_slope", 0.4)), local_window_size=int(cfg.get("local_window_size", 6)))
         rng = jax.random.PRNGKey(cfg.seed)
-        dummy_s = jnp.zeros((1, obs_dim))
-        dummy_seq = jnp.zeros((1, cfg.max_seq_len, latent_dim))
-        dummy_mask = jnp.ones((1, cfg.max_seq_len), dtype=bool)
-        dummy_curv = jnp.ones((1, cfg.max_seq_len, 1), dtype=jnp.float32)
-
-        rng, init_rng = jax.random.split(rng)
-        params = model_def.init(
-            {"params": init_rng, "dropout": init_rng},
-            dummy_s,
-            dummy_seq,
-            dummy_mask,
-            dummy_curv,
-            deterministic=False,
-        )["params"]
-        opt_state = optimizer.init(params)
-        step_fn = make_enhanced_sequence_wp_train_step(
-            model_def.apply, frozen_actor_fn, frozen_f_fn, frozen_b_fn, optimizer
-        )
-
-        @jax.jit
-        def eval_fn(p, val_batch):
-            pred_z = model_def.apply(
-                {"params": p},
-                val_batch["states"],
-                val_batch["wp_seqs"],
-                val_batch["seq_masks"],
-                val_batch["curvatures"],
-                deterministic=True,
-            )
-            cos_sim = jnp.sum(pred_z * val_batch["z_targets"], axis=-1) / (
-                jnp.linalg.norm(pred_z, axis=-1) * jnp.linalg.norm(val_batch["z_targets"], axis=-1) + 1e-8
-            )
-            act_dist = frozen_actor_fn(val_batch["states"], pred_z, goal_encoded=True, temperature=0.0)
-            pred_a = act_dist.mode()
-            act_mse = jnp.mean((pred_a - val_batch["a_targets"]) ** 2)
-            return {"val_cos_sim": jnp.mean(cos_sim), "val_action_mse": act_mse}
-
+        params = m.init({"params": rng, "dropout": rng}, jnp.zeros((1, obs_dim)), jnp.zeros((1, cfg.max_seq_len, latent_dim)), jnp.ones((1, cfg.max_seq_len), bool), jnp.ones((1, cfg.max_seq_len, 1)), deterministic=False)["params"]
+        step_fn = make_enhanced_sequence_wp_train_step(m.apply, frozen_fns["actor"], frozen_fns["f"], frozen_fns["b"], optimizer)
     else:
         raise ValueError(f"Unknown mode: {cfg.mode}")
+    return m, params, optimizer.init(params), step_fn
 
-    # 4. Training Loop
-    lambdas = {
-        "l_cos": cfg.l_cos,
-        "l_mse": cfg.l_mse,
-        "l_action": cfg.l_action,
-        "l_reach": cfg.l_reach,
-        "l_goal": cfg.l_goal,
-        "l_aux": float(cfg.get("l_aux", 0.2)),
-    }
 
-    num_batches = n_train // cfg.batch_size
-    history = []
-    log_file = os.path.join(run_dir, f"training_{cfg.mode}_{cfg.split}.log")
+def _run_training_epoch(mode, step_fn, params, opt_state, train_data, batch_size, lambdas, rng, n_train):
+    rng, perm_rng = jax.random.split(rng)
+    perms = jax.random.permutation(perm_rng, n_train)
+    num_batches, ep_metrics = n_train // batch_size, []
+    for b in range(num_batches):
+        idx = perms[b * batch_size : (b + 1) * batch_size]
+        if mode == "single_wp":
+            batch = {"state": train_data["states"][idx], "w1_z": train_data["w1_zs"][idx], "final_goal_z": train_data["final_goals_z"][idx], "z_target": train_data["z_targets"][idx], "a_target": train_data["a_targets"][idx]}
+            params, opt_state, m = step_fn(params, opt_state, batch, lambdas)
+        elif mode == "sequence_attn":
+            batch = {"state": train_data["states"][idx], "wp_seq": train_data["wp_seqs"][idx], "seq_mask": train_data["seq_masks"][idx], "final_goal_z": train_data["final_goals_z"][idx], "z_target": train_data["z_targets"][idx], "a_target": train_data["a_targets"][idx]}
+            params, opt_state, m = step_fn(params, opt_state, batch, lambdas)
+        else:
+            batch = {"state": train_data["states"][idx], "wp_seq": train_data["wp_seqs"][idx], "seq_mask": train_data["seq_masks"][idx], "curvatures": train_data["curvatures"][idx], "final_goal_z": train_data["final_goals_z"][idx], "z_target": train_data["z_targets"][idx], "a_target": train_data["a_targets"][idx]}
+            params, opt_state, m, rng = step_fn(params, opt_state, batch, lambdas, rng)
+        ep_metrics.append({k: float(v) for k, v in m.items()})
+    return params, opt_state, rng, {k: float(np.mean([m[k] for m in ep_metrics])) for k in ep_metrics[0]}
 
-    best_val_mse = float("inf")
-    best_params = params
 
-    print(f"\nStarting {cfg.mode.upper()} Training on RTX 4070 ({cfg.epochs} epochs, {num_batches} batches/epoch)...")
-    with open(log_file, "w") as lf:
-        lf.write("Epoch,Loss,Loss_BC,Loss_Action,Loss_Reach,Loss_Goal,CosSim,Val_CosSim,Val_ActMSE\n")
-
-        for epoch in range(1, cfg.epochs + 1):
-            t0 = time.perf_counter()
-            rng, perm_rng = jax.random.split(rng)
-            perms = jax.random.permutation(perm_rng, n_train)
-
-            epoch_metrics = []
-            for b_idx in range(num_batches):
-                batch_indices = perms[b_idx * cfg.batch_size : (b_idx + 1) * cfg.batch_size]
-                if cfg.mode == "single_wp":
-                    batch = {
-                        "state": train_data["states"][batch_indices],
-                        "w1_z": train_data["w1_zs"][batch_indices],
-                        "final_goal_z": train_data["final_goals_z"][batch_indices],
-                        "z_target": train_data["z_targets"][batch_indices],
-                        "a_target": train_data["a_targets"][batch_indices],
-                    }
-                    params, opt_state, metrics = step_fn(params, opt_state, batch, lambdas)
-                elif cfg.mode == "sequence_attn":
-                    batch = {
-                        "state": train_data["states"][batch_indices],
-                        "wp_seq": train_data["wp_seqs"][batch_indices],
-                        "seq_mask": train_data["seq_masks"][batch_indices],
-                        "final_goal_z": train_data["final_goals_z"][batch_indices],
-                        "z_target": train_data["z_targets"][batch_indices],
-                        "a_target": train_data["a_targets"][batch_indices],
-                    }
-                    params, opt_state, metrics = step_fn(params, opt_state, batch, lambdas)
-                else: # enhanced_seq_attn
-                    batch = {
-                        "state": train_data["states"][batch_indices],
-                        "wp_seq": train_data["wp_seqs"][batch_indices],
-                        "seq_mask": train_data["seq_masks"][batch_indices],
-                        "curvatures": train_data["curvatures"][batch_indices],
-                        "final_goal_z": train_data["final_goals_z"][batch_indices],
-                        "z_target": train_data["z_targets"][batch_indices],
-                        "a_target": train_data["a_targets"][batch_indices],
-                    }
-                    params, opt_state, metrics, rng = step_fn(params, opt_state, batch, lambdas, rng)
-
-                epoch_metrics.append({k: float(v) for k, v in metrics.items()})
-
-            val_metrics = eval_fn(params, val_data)
-            val_metrics = {k: float(v) for k, v in val_metrics.items()}
-            avg_train = {k: np.mean([m[k] for m in epoch_metrics]) for k in epoch_metrics[0].keys()}
-            elapsed = time.perf_counter() - t0
-
-            if val_metrics["val_action_mse"] < best_val_mse:
-                best_val_mse = val_metrics["val_action_mse"]
-                best_params = params
-
-            aux_str = f", Aux: {avg_train.get('loss_aux', 0.0):.4f}" if "loss_aux" in avg_train else ""
-            log_line = (
-                f"Epoch {epoch:04d}/{cfg.epochs:04d} [{elapsed:.2f}s] | "
-                f"Loss: {avg_train['loss']:.4f} (BC: {avg_train['loss_bc']:.4f}, Act: {avg_train['loss_action']:.4f}, "
-                f"Reach: {avg_train['loss_reach']:.4f}, Goal: {avg_train['loss_goal']:.4f}{aux_str}) | "
-                f"Train CosSim: {avg_train['cos_sim']:.4f} | "
-                f"Val CosSim: {val_metrics['val_cos_sim']:.4f} | Val ActMSE: {val_metrics['val_action_mse']:.4f} (Best: {best_val_mse:.4f})"
-            )
-            print(log_line)
-
-            csv_row = (
-                f"{epoch},{avg_train['loss']:.5f},{avg_train['loss_bc']:.5f},"
-                f"{avg_train['loss_action']:.5f},{avg_train['loss_reach']:.5f},{avg_train['loss_goal']:.5f},"
-                f"{avg_train['cos_sim']:.5f},{val_metrics['val_cos_sim']:.5f},{val_metrics['val_action_mse']:.5f}\n"
-            )
-            lf.write(csv_row)
-            lf.flush()
-
-            if mlflow_active:
-                try:
-                    import mlflow
-                    ml_data = {
-                        "train_loss": avg_train["loss"],
-                        "train_loss_bc": avg_train["loss_bc"],
-                        "train_loss_action": avg_train["loss_action"],
-                        "train_loss_reach": avg_train["loss_reach"],
-                        "train_loss_goal": avg_train["loss_goal"],
-                        "train_cos_sim": avg_train["cos_sim"],
-                        "val_cos_sim": val_metrics["val_cos_sim"],
-                        "val_action_mse": val_metrics["val_action_mse"],
-                    }
-                    if "loss_aux" in avg_train:
-                        ml_data["train_loss_aux"] = avg_train["loss_aux"]
-                    mlflow.log_metrics(ml_data, step=epoch)
-                except Exception:
-                    pass
-
-            history.append({
-                "epoch": epoch,
-                "train": avg_train,
-                "val": val_metrics,
-                "elapsed": elapsed,
-            })
-
-    # Save model checkpoint in the Hydra run folder
-    save_path = os.path.join(run_dir, f"checkpoint_{cfg.mode}_{cfg.split}.pkl")
+def _save_translator_checkpoints(best_params, cfg, run_dir, save_path, mlflow_active):
+    payload = {"params": flax.core.unfreeze(best_params), "mode": cfg.mode, "split": cfg.split, "config": OmegaConf.to_container(cfg, resolve=True)}
     with open(save_path, "wb") as f:
-        pickle.dump({
-            "params": flax.core.unfreeze(best_params),
-            "mode": cfg.mode,
-            "split": cfg.split,
-            "config": OmegaConf.to_container(cfg, resolve=True),
-        }, f)
-    print(f"\nModel checkpoint successfully saved to {save_path}")
-
-    # Also save canonical checkpoints in outputs/checkpoints/ for evaluation scripts
+        pickle.dump(payload, f)
     canonical_dir = os.path.join(PROJECT_ROOT, "outputs", "checkpoints")
     os.makedirs(canonical_dir, exist_ok=True)
-    canonical_path = os.path.join(canonical_dir, f"best_{cfg.mode}_{cfg.split}.pkl")
-    with open(canonical_path, "wb") as f:
-        pickle.dump({
-            "params": flax.core.unfreeze(best_params),
-            "mode": cfg.mode,
-            "split": cfg.split,
-            "config": OmegaConf.to_container(cfg, resolve=True),
-        }, f)
-    print(f"Canonical checkpoint updated at {canonical_path}")
-
-    # If mode is enhanced_seq_attn, also write to best_enhanced_sequence_attn_{split}.pkl
+    with open(os.path.join(canonical_dir, f"best_{cfg.mode}_{cfg.split}.pkl"), "wb") as f:
+        pickle.dump(payload, f)
     if cfg.mode == "enhanced_seq_attn":
-        alt_canonical_path = os.path.join(canonical_dir, f"best_enhanced_sequence_attn_{cfg.split}.pkl")
-        with open(alt_canonical_path, "wb") as f:
-            pickle.dump({
-                "params": flax.core.unfreeze(best_params),
-                "mode": cfg.mode,
-                "split": cfg.split,
-                "config": OmegaConf.to_container(cfg, resolve=True),
-            }, f)
-        print(f"Canonical checkpoint updated at {alt_canonical_path}")
-
+        with open(os.path.join(canonical_dir, f"best_enhanced_sequence_attn_{cfg.split}.pkl"), "wb") as f:
+            pickle.dump(payload, f)
     if mlflow_active:
         try:
             import mlflow
@@ -519,6 +151,32 @@ def main(cfg: DictConfig):
             pass
 
 
+@hydra.main(config_path="../configs", config_name="train_translator", version_base="1.3")
+def main(cfg: DictConfig):
+    agent, env, train_ds, _, _ = load_pretrained_agent(cfg.checkpoint_dir, cfg.split, seed=cfg.seed)
+    cache_path = os.path.join(PROJECT_ROOT, "results", "datasets", f"wp_dataset_{cfg.split}_{cfg.n_pairs}p_k{cfg.max_seq_len}.npz")
+    dataset = generate_waypoint_sequences_dataset(agent, train_ds["observations"], cfg.n_pairs, cfg.noise_sigma, cfg.max_seq_len, cfg.lookahead_dist, cfg.split, cache_path, cfg.seed)
+
+    N = len(dataset["states"])
+    n_train = int(0.9 * N)
+    train_data = {k: jnp.asarray(v[:n_train]) for k, v in dataset.items()}
+    val_data = {k: jnp.asarray(v[n_train:]) for k, v in dataset.items()}
+
+    lr_schedule = optax.warmup_cosine_decay_schedule(1e-5, cfg.lr, int(0.05 * (n_train // cfg.batch_size) * cfg.epochs), (n_train // cfg.batch_size) * cfg.epochs, 1e-6)
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4))
+    frozen_fns = {"actor": agent.network.select("actor"), "f": agent.network.select("forward_repr"), "b": agent.network.select("backward_repr")}
+
+    model_def, params, opt_state, step_fn = _setup_model_and_step_fn(cfg, dataset["states"].shape[-1], agent.config["latent_dim"], frozen_fns, optimizer)
+    lambdas = {"l_cos": cfg.l_cos, "l_mse": cfg.l_mse, "l_action": cfg.l_action, "l_reach": cfg.l_reach, "l_goal": cfg.l_goal, "l_aux": float(cfg.get("l_aux", 0.2))}
+
+    rng = jax.random.PRNGKey(cfg.seed)
+    for epoch in range(1, cfg.epochs + 1):
+        params, opt_state, rng, tr_m = _run_training_epoch(cfg.mode, step_fn, params, opt_state, train_data, cfg.batch_size, lambdas, rng, n_train)
+        if epoch % 50 == 0 or epoch == cfg.epochs:
+            print(f"Epoch {epoch:4d}/{cfg.epochs} | Loss: {tr_m['loss']:.4f} | CosSim: {tr_m['cos_sim']:.4f}")
+
+    _save_translator_checkpoints(params, cfg, os.getcwd(), os.path.join(os.getcwd(), f"checkpoint_{cfg.mode}_{cfg.split}.pkl"), False)
+
+
 if __name__ == "__main__":
     main()
-
