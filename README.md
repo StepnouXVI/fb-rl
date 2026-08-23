@@ -81,7 +81,7 @@ conda activate fb-rl
 # 3. Install PyTorch & JAX (Select according to your hardware)
 
 # For Linux / Windows with CUDA 12:
-pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install --upgrade "jax[cuda12]"
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # For macOS (Apple Silicon MPS / CPU) or generic CPU:
@@ -92,7 +92,7 @@ pip install torch torchvision
 pip install -r requirements.txt
 
 # 5. Verify the environment setup
-python verify_env.py
+pytest tests/
 ```
 
 #### Option 2: Setup from `environment.yml`
@@ -103,7 +103,7 @@ conda env create -f environment.yml
 conda activate fb-rl
 
 # Verify the environment setup
-python verify_env.py
+pytest tests/
 ```
 
 ---
