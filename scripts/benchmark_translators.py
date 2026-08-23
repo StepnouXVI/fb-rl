@@ -30,23 +30,20 @@ def _find_checkpoint(name, dirs):
 
 
 def _init_candidate_planners(agent, train_obs, split, n_landmarks):
-    dirs = [os.path.join(PROJECT_ROOT, "outputs", "checkpoints"), os.path.join(PROJECT_ROOT, "results", "checkpoints"), PROJECT_ROOT]
-    planners = [
-        BaselinePlanner(agent, dataset_states=train_obs, name="1. Single-Intention Baseline"),
-        BufferGraphPlanner(agent, train_obs, n_landmarks=n_landmarks, name="2. Dijkstra Teacher (high_actor)"),
-    ]
-    single_wp_ckpt = _find_checkpoint(f"best_single_wp_{split}.pkl", dirs) or _find_checkpoint(f"checkpoint_single_wp_{split}.pkl", dirs)
-    if single_wp_ckpt:
-        planners.append(WaypointTranslatorPlanner(agent, train_obs, single_wp_ckpt, n_landmarks, hidden_dim=384, n_layers=4, name="3. Dijkstra + Single WP Translator"))
-
-    enhanced_ckpt = _find_checkpoint(f"best_enhanced_sequence_attn_{split}.pkl", dirs) or _find_checkpoint(f"checkpoint_enhanced_seq_attn_{split}.pkl", dirs)
-    if enhanced_ckpt:
-        planners.append(EnhancedSequenceWaypointAttentionPlanner(agent, train_obs, enhanced_ckpt, n_landmarks, hidden_dim=384, num_heads=6, n_layers=4, name="5. Dijkstra + Enhanced Sequence Attention"))
-
+    dirs = [os.path.join(PROJECT_ROOT, "results", "checkpoints"), os.path.join(PROJECT_ROOT, "outputs", "checkpoints"), PROJECT_ROOT]
+    enhanced_ckpt = _find_checkpoint(f"best_enhanced_sequence_attn_{split}.pkl", dirs) or _find_checkpoint(f"best_enhanced_seq_attn_{split}.pkl", dirs)
+    single_wp_ckpt = _find_checkpoint(f"best_single_wp_{split}.pkl", dirs)
     jax_ckpt = _find_checkpoint(f"distilled_jax_gated_attn_{split}.pkl", dirs)
-    if jax_ckpt:
-        planners.append(DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, model_type="gated_attn", name="6. Distilled JAX GatedAttn [O(1)]"))
-    return planners
+    if not enhanced_ckpt or not single_wp_ckpt or not jax_ckpt:
+        raise FileNotFoundError(f"Missing required checkpoints in {dirs} for split {split}!")
+
+    return [
+        EnhancedSequenceWaypointAttentionPlanner(agent, train_obs, enhanced_ckpt, n_landmarks, hidden_dim=384, num_heads=6, n_layers=4, name="1. Dijkstra + Enhanced Sequence Attention"),
+        BaselinePlanner(agent, dataset_states=train_obs, name="2. Single-Intention Baseline"),
+        WaypointTranslatorPlanner(agent, train_obs, single_wp_ckpt, n_landmarks, hidden_dim=384, n_layers=4, name="3. Dijkstra + Single WP Translator"),
+        BufferGraphPlanner(agent, train_obs, n_landmarks=n_landmarks, name="4. Dijkstra Teacher (high_actor)"),
+        DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, model_type="gated_attn", name="5. Distilled JAX GatedAttn [O(1)]"),
+    ]
 
 
 def _eval_single_planner(evaluator, planner, seeds, num_tasks, ep_per_task):
