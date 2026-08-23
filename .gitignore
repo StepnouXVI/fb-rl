@@ -57,3 +57,5 @@ multirun/
 results/*.csv
 results/*.npz
 !results/benchmarks/*.csv
+results/data/*.csv
+!results/data/*.csv.gz

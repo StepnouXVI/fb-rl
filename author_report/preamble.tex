@@ -1,6 +1,12 @@
-%%% Преамбула авторского отчета (2-колоночный стиль) %%%
-\usepackage[T2A,T1]{fontenc}
-\usepackage[utf8]{inputenc}
+\usepackage{iftex}
+\ifXeTeX
+  \usepackage{fontspec}
+  \setmainfont{Times New Roman}
+  \setsansfont{Arial}
+\else
+  \usepackage[T2A,T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\fi
 \usepackage[russian]{babel}
 \usepackage{graphicx}
 \usepackage{xcolor}

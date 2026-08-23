@@ -1,36 +1,356 @@
 %!TEX root = ../main.tex
-\begin{tikzpicture}[>=stealth, font=\scriptsize, scale=0.72, every node/.style={transform shape}]
-    \draw[thick, fill=blue!3] (0,0) rectangle (6.8,3.4);
-    
-    % Стена лабиринта
-    \draw[ultra thick, line width=3pt, red!70!black] (3.3, 0.4) -- (3.3, 2.9);
-    \node[font=\tiny\bfseries, red!70!black] at (3.3, 3.1) {Стена};
-    
-    % Узлы графа
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n1) at (0.6, 0.8) {};
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n2) at (1.0, 2.4) {};
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n3) at (2.2, 2.7) {};
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n4) at (4.4, 2.7) {};
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n5) at (5.5, 2.4) {};
-    \node[circle, fill=blue!60!black, inner sep=1.8pt] (n6) at (5.9, 0.8) {};
-    
-    % Ребра
-    \draw[->, thick, gray!60] (n1) -- (n2);
-    \draw[->, thick, gray!60] (n2) -- (n3);
-    \draw[->, thick, gray!60] (n3) -- (n4);
-    \draw[->, thick, gray!60] (n4) -- (n5);
-    \draw[->, thick, gray!60] (n5) -- (n6);
-    
-    \draw[->, thick, dashed, red!60] (n1) -- (n6);
-    \node[font=\tiny, fill=white, text=red!80!black] at (3.3, 0.8) {$c=\infty$};
-    
-    % Агент и Sliding Lookahead
-    \node[circle, fill=green!70!black, inner sep=2.5pt, label=below:{\tiny $s_t$}] (A) at (1.4, 1.8) {};
-    \node[circle, fill=purple!80!black, inner sep=2pt, label=above:{\tiny $w_{\text{lookahead}}$}] (W) at (2.2, 2.7) {};
-    
-    \draw[->, ultra thick, blue!80!black] (A) -- (W);
-    \draw[<->, thick, dashed, purple!80!black] (A) to[bend right=25] node[midway, below, font=\tiny] {$L = 2.6\,\text{м}$} (W);
-    
-    \node[star, star points=5, star point ratio=2.25, fill=yellow!80!black, draw=black, inner sep=2pt, label=below:{\tiny $g$}] (G) at (6.3, 0.6) {};
-    \draw[->, thick, gray!60] (n6) -- (G);
+\begin{tikzpicture}[>=latex, font=\sffamily, scale=0.49, every node/.style={transform shape}]
+
+    % -------------------------------------------------------------
+    % Стили элементов диаграммы (согласованы с палитрой отчета)
+    % -------------------------------------------------------------
+    \tikzset{
+        mazebg/.style={draw=none, fill=gray!6, rounded corners=2pt},
+        mazeframe/.style={draw=black!90, line width=1.5pt, rounded corners=2pt},
+        mazewall/.style={draw=black!85, fill=gray!38, line width=0.9pt, rounded corners=1.5pt},
+        samplenode/.style={draw=black!90, fill=yellow!95!orange, rectangle, inner sep=2.2pt, rounded corners=0.6pt, line width=0.6pt},
+        samplenode_faded/.style={draw=black!30, fill=yellow!45, rectangle, inner sep=1.8pt, rounded corners=0.5pt, line width=0.4pt},
+        startnode/.style={circle, fill=black, inner sep=2.5pt},
+        goalnode/.style={star, star points=5, star point ratio=2.25, fill=black, draw=black, inner sep=2.3pt},
+        agentnode/.style={circle, fill=green!70!black, draw=black!90, line width=0.8pt, inner sep=2.8pt},
+        lookaheadnode/.style={circle, fill=purple!80!black, draw=black!90, line width=0.8pt, inner sep=2.3pt},
+        candidateline/.style={draw=black!55, line width=0.85pt},
+        fadedline/.style={draw=black!20, line width=0.6pt},
+        filteredline/.style={draw=red!80!black, dashed, line width=1.2pt},
+        patharrow/.style={draw=blue!85!black, -{Latex[length=4.2pt, width=2.8pt]}, line width=1.7pt},
+        subcaption/.style={font=\small\bfseries, align=center, text=black!90}
+    }
+
+    % Отрисовка стен лабиринта AntMaze Medium (6x6)
+    \def\drawMediumWalls{
+        % Внутренние стены Medium Maze
+        % (3,1) & (4,1)
+        \draw[mazewall] (2.5, 0.5) rectangle (4.5, 1.5);
+        % (3,2)
+        \draw[mazewall] (2.5, 1.5) rectangle (3.5, 2.5);
+        % (1,3)
+        \draw[mazewall] (0.5, 2.5) rectangle (1.5, 3.5);
+        % (5,3) & (6,3)
+        \draw[mazewall] (4.5, 2.5) rectangle (6.5, 3.5);
+        % (3,4)
+        \draw[mazewall] (2.5, 3.5) rectangle (3.5, 4.5);
+        % (2,5)
+        \draw[mazewall] (1.5, 4.5) rectangle (2.5, 5.5);
+        % (5,5)
+        \draw[mazewall] (4.5, 4.5) rectangle (5.5, 5.5);
+        % (4,6)
+        \draw[mazewall] (3.5, 5.5) rectangle (4.5, 6.5);
+    }
+
+    % Концентрические изолинии FB-поля цели
+    \newcommand{\drawFBFieldGoal}[2]{
+        \begin{scope}
+            \clip (0.5, 0.5) rectangle (6.5, 6.5);
+            \fill[green!45!teal, opacity=0.12] (#1, #2) circle (2.2);
+            \fill[green!50!teal, opacity=0.18] (#1, #2) circle (1.7);
+            \fill[green!58!teal, opacity=0.26] (#1, #2) circle (1.25);
+            \fill[green!65!black, opacity=0.36] (#1, #2) circle (0.85);
+            \fill[green!75!black, opacity=0.50] (#1, #2) circle (0.50);
+            \fill[green!85!black, opacity=0.68] (#1, #2) circle (0.24);
+        \end{scope}
+    }
+
+    % Концентрические поля вокруг сэмплированных точек
+    \newcommand{\drawFBFieldNode}[2]{
+        \begin{scope}
+            \clip (0.5, 0.5) rectangle (6.5, 6.5);
+            \fill[green!45!teal, opacity=0.14] (#1, #2) circle (1.1);
+            \fill[green!55!teal, opacity=0.22] (#1, #2) circle (0.75);
+            \fill[green!65!black, opacity=0.34] (#1, #2) circle (0.45);
+            \fill[green!75!black, opacity=0.50] (#1, #2) circle (0.20);
+        \end{scope}
+    }
+
+    % =============================================================
+    % ПАНЕЛЬ (a): Старт, Цель и FB-поле цели
+    % =============================================================
+    \begin{scope}[shift={(0,0)}]
+        \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
+        \drawFBFieldGoal{5.9}{5.9}
+        \drawMediumWalls
+        \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
+        
+        \node[startnode] (S_a) at (1.1, 1.1) {};
+        \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
+        
+        \node[goalnode] (G_a) at (5.9, 5.9) {};
+        \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
+        
+        \node[subcaption] at (3.5, -0.65) {(a) Старт $s_0$ и цель $g$\\с FB-полем $B(g)$};
+    \end{scope}
+
+    % =============================================================
+    % ПАНЕЛЬ (b): Сэмплирование точек буфера с FB-окрестностями
+    % =============================================================
+    \begin{scope}[shift={(7.3, 0)}]
+        \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
+
+        \drawFBFieldGoal{5.9}{5.9}
+        \drawFBFieldNode{1.1}{1.1}
+        \drawFBFieldNode{1.1}{2.0}
+        \drawFBFieldNode{2.0}{1.1}
+        \drawFBFieldNode{2.0}{2.0}
+        \drawFBFieldNode{2.0}{3.0}
+        \drawFBFieldNode{3.0}{3.0}
+        \drawFBFieldNode{4.0}{3.0}
+        \drawFBFieldNode{5.0}{2.0}
+        \drawFBFieldNode{6.0}{1.2}
+        \drawFBFieldNode{1.2}{4.5}
+        \drawFBFieldNode{1.2}{5.8}
+        \drawFBFieldNode{2.8}{6.0}
+        \drawFBFieldNode{3.8}{5.0}
+        \drawFBFieldNode{4.2}{4.2}
+        \drawFBFieldNode{5.8}{4.2}
+        \drawFBFieldNode{6.0}{5.1}
+
+        \drawMediumWalls
+        \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
+        
+        \node[startnode] at (1.1, 1.1) {};
+        \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
+        \node[goalnode] at (5.9, 5.9) {};
+        \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
+        
+        \node[samplenode] at (1.1, 2.0) {};
+        \node[samplenode] at (2.0, 1.1) {};
+        \node[samplenode] at (2.0, 2.0) {};
+        \node[samplenode] at (2.0, 3.0) {};
+        \node[samplenode] at (3.0, 3.0) {};
+        \node[samplenode] at (4.0, 3.0) {};
+        \node[samplenode] at (5.0, 2.0) {};
+        \node[samplenode] at (6.0, 1.2) {};
+        \node[samplenode] at (1.2, 4.5) {};
+        \node[samplenode] at (1.2, 5.8) {};
+        \node[samplenode] at (2.8, 6.0) {};
+        \node[samplenode] at (3.8, 5.0) {};
+        \node[samplenode] at (4.2, 4.2) {};
+        \node[samplenode] at (5.8, 4.2) {};
+        \node[samplenode] at (6.0, 5.1) {};
+
+        \node[subcaption] at (3.5, -0.65) {(b) Сэмплирование\\узлов $\{s_i\} \subset \mathcal{D}$};
+    \end{scope}
+
+    % =============================================================
+    % ПАНЕЛЬ (c): Кандидатный граф смежности (k-NN / радиус)
+    % =============================================================
+    \begin{scope}[shift={(14.6, 0)}]
+        \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
+        \drawFBFieldNode{5.9}{5.9}
+        \drawMediumWalls
+        \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
+        
+        \coordinate (s) at (1.1, 1.1);
+        \coordinate (n1) at (1.1, 2.0);
+        \coordinate (n2) at (2.0, 1.1);
+        \coordinate (n3) at (2.0, 2.0);
+        \coordinate (n4) at (2.0, 3.0);
+        \coordinate (n5) at (3.0, 3.0);
+        \coordinate (n6) at (4.0, 3.0);
+        \coordinate (n7) at (5.0, 2.0);
+        \coordinate (n8) at (6.0, 1.2);
+        \coordinate (n9) at (1.2, 4.5);
+        \coordinate (n10) at (1.2, 5.8);
+        \coordinate (n11) at (2.8, 6.0);
+        \coordinate (n12) at (3.8, 5.0);
+        \coordinate (n13) at (4.2, 4.2);
+        \coordinate (n14) at (5.8, 4.2);
+        \coordinate (n15) at (6.0, 5.1);
+        \coordinate (g) at (5.9, 5.9);
+        
+        % Допустимые коридорные ребра
+        \draw[candidateline] (s) -- (n1);
+        \draw[candidateline] (s) -- (n2);
+        \draw[candidateline] (n1) -- (n3);
+        \draw[candidateline] (n2) -- (n3);
+        \draw[candidateline] (n3) -- (n4);
+        \draw[candidateline] (n4) -- (n5);
+        \draw[candidateline] (n5) -- (n6);
+        \draw[candidateline] (n6) -- (n7);
+        \draw[candidateline] (n7) -- (n8);
+        \draw[candidateline] (n6) -- (n13);
+        \draw[candidateline] (n13) -- (n14);
+        \draw[candidateline] (n14) -- (n15);
+        \draw[candidateline] (n15) -- (g);
+        \draw[candidateline] (n9) -- (n10);
+        \draw[candidateline] (n10) -- (n11);
+        \draw[candidateline] (n11) -- (n12);
+        \draw[candidateline] (n12) -- (n13);
+
+        % Ложные ребра сквозь стены
+        \draw[candidateline, line width=1.0pt] (n1) -- (n9);
+        \draw[candidateline, line width=1.0pt] (n7) -- (n14);
+        \draw[candidateline, line width=1.0pt] (n8) -- (n15);
+        \draw[candidateline, line width=1.0pt] (n11) -- (g);
+        \draw[candidateline, line width=1.0pt] (n12) -- (n15);
+        \draw[candidateline, line width=1.0pt] (n9) -- (n12);
+
+        \node[startnode] at (s) {};
+        \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
+        \node[goalnode] at (g) {};
+        \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
+        \foreach \pt in {n1,n2,n3,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15} {
+            \node[samplenode] at (\pt) {};
+        }
+
+        \node[subcaption] at (3.5, -0.65) {(c) Кандидатный граф\\($\|s_i - s_j\| \le r$)};
+    \end{scope}
+
+    % =============================================================
+    % ПАНЕЛЬ (d): Отсечение ребер сквозь стены по мере FB
+    % =============================================================
+    \begin{scope}[shift={(21.9, 0)}]
+        \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
+        \drawMediumWalls
+        \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
+        
+        \coordinate (s) at (1.1, 1.1);
+        \coordinate (n1) at (1.1, 2.0);
+        \coordinate (n2) at (2.0, 1.1);
+        \coordinate (n3) at (2.0, 2.0);
+        \coordinate (n4) at (2.0, 3.0);
+        \coordinate (n5) at (3.0, 3.0);
+        \coordinate (n6) at (4.0, 3.0);
+        \coordinate (n7) at (5.0, 2.0);
+        \coordinate (n8) at (6.0, 1.2);
+        \coordinate (n9) at (1.2, 4.5);
+        \coordinate (n10) at (1.2, 5.8);
+        \coordinate (n11) at (2.8, 6.0);
+        \coordinate (n12) at (3.8, 5.0);
+        \coordinate (n13) at (4.2, 4.2);
+        \coordinate (n14) at (5.8, 4.2);
+        \coordinate (n15) at (6.0, 5.1);
+        \coordinate (g) at (5.9, 5.9);
+        
+        % Валидные ребра остаются
+        \draw[candidateline] (s) -- (n1);
+        \draw[candidateline] (s) -- (n2);
+        \draw[candidateline] (n1) -- (n3);
+        \draw[candidateline] (n2) -- (n3);
+        \draw[candidateline] (n3) -- (n4);
+        \draw[candidateline] (n4) -- (n5);
+        \draw[candidateline] (n5) -- (n6);
+        \draw[candidateline] (n6) -- (n7);
+        \draw[candidateline] (n7) -- (n8);
+        \draw[candidateline] (n6) -- (n13);
+        \draw[candidateline] (n13) -- (n14);
+        \draw[candidateline] (n14) -- (n15);
+        \draw[candidateline] (n15) -- (g);
+        \draw[candidateline] (n9) -- (n10);
+        \draw[candidateline] (n10) -- (n11);
+        \draw[candidateline] (n11) -- (n12);
+        \draw[candidateline] (n12) -- (n13);
+
+        % Ложные ребра отсекаются (красный пунктир + крестики + бейджи c = inf)
+        \draw[filteredline] (n1) -- (n9);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (1.15, 3.25) {};
+        \node[fill=red!8, draw=red!80, line width=0.5pt, inner sep=1.0pt, rounded corners=1.5pt, font=\tiny\bfseries, text=red!90!black] at (1.15, 2.75) {$c=\infty$};
+
+        \draw[filteredline] (n7) -- (n14);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (5.4, 3.1) {};
+        \node[fill=red!8, draw=red!80, line width=0.5pt, inner sep=1.0pt, rounded corners=1.5pt, font=\tiny\bfseries, text=red!90!black] at (5.4, 2.65) {$c=\infty$};
+
+        \draw[filteredline] (n8) -- (n15);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (6.0, 3.1) {};
+
+        \draw[filteredline] (n11) -- (g);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (4.35, 5.95) {};
+        \node[fill=red!8, draw=red!80, line width=0.5pt, inner sep=1.0pt, rounded corners=1.5pt, font=\tiny\bfseries, text=red!90!black] at (4.35, 5.5) {$c=\infty$};
+
+        \draw[filteredline] (n12) -- (n15);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (4.9, 5.05) {};
+
+        \draw[filteredline] (n9) -- (n12);
+        \node[cross out, draw=red!90!black, line width=1.6pt, minimum size=7pt] at (2.5, 4.75) {};
+
+        % Узлы поверх
+        \node[startnode] at (s) {};
+        \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
+        \node[goalnode] at (g) {};
+        \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
+        \foreach \pt in {n1,n2,n3,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15} {
+            \node[samplenode] at (\pt) {};
+        }
+
+        \node[subcaption] at (3.5, -0.65) {(d) Фильтрация по FB\\($R_{ij} < 35 \implies c = \infty$)};
+    \end{scope}
+
+    % =============================================================
+    % ПАНЕЛЬ (e): Кратчайший путь Дейкстры и Sliding Lookahead
+    % =============================================================
+    \begin{scope}[shift={(29.2, 0)}]
+        \fill[mazebg] (0.5, 0.5) rectangle (6.5, 6.5);
+        \drawMediumWalls
+        \draw[mazeframe] (0.5, 0.5) rectangle (6.5, 6.5);
+        
+        \coordinate (s) at (1.1, 1.1);
+        \coordinate (n1) at (1.1, 2.0);
+        \coordinate (n2) at (2.0, 1.1);
+        \coordinate (n3) at (2.0, 2.0);
+        \coordinate (n4) at (2.0, 3.0);
+        \coordinate (n5) at (3.0, 3.0);
+        \coordinate (n6) at (4.0, 3.0);
+        \coordinate (n7) at (5.0, 2.0);
+        \coordinate (n8) at (6.0, 1.2);
+        \coordinate (n9) at (1.2, 4.5);
+        \coordinate (n10) at (1.2, 5.8);
+        \coordinate (n11) at (2.8, 6.0);
+        \coordinate (n12) at (3.8, 5.0);
+        \coordinate (n13) at (4.2, 4.2);
+        \coordinate (n14) at (5.8, 4.2);
+        \coordinate (n15) at (6.0, 5.1);
+        \coordinate (g) at (5.9, 5.9);
+        
+        % Фоновый граф
+        \draw[fadedline] (s) -- (n2);
+        \draw[fadedline] (n2) -- (n3);
+        \draw[fadedline] (n6) -- (n7);
+        \draw[fadedline] (n7) -- (n8);
+        \draw[fadedline] (n9) -- (n10);
+        \draw[fadedline] (n10) -- (n11);
+        \draw[fadedline] (n11) -- (n12);
+        \draw[fadedline] (n12) -- (n13);
+
+        % Найденный кратчайший путь Дейкстры (аккуратный маршрут по коридору)
+        \draw[patharrow] (s) -- (n1);
+        \draw[patharrow] (n1) -- (n3);
+        \draw[patharrow] (n3) -- (n4);
+        \draw[patharrow] (n4) -- (n5);
+        \draw[patharrow] (n5) -- (n6);
+        \draw[patharrow] (n6) -- (n13);
+        \draw[patharrow] (n13) -- (n14);
+        \draw[patharrow] (n14) -- (n15);
+        \draw[patharrow] (n15) -- (g);
+
+        % Фоновые узлы
+        \foreach \pt in {n2,n7,n8,n9,n10,n11,n12} {
+            \node[samplenode_faded] at (\pt) {};
+        }
+        % Узлы на пути
+        \foreach \pt in {n1,n3,n4,n5,n6,n13,n14,n15} {
+            \node[samplenode] at (\pt) {};
+        }
+
+        % Текущее положение агента s_t и вейпоинт Sliding Lookahead
+        \node[agentnode, label={[text=green!60!black, font=\scriptsize\bfseries]left:$s_t$}] (A) at (3.0, 3.0) {};
+        \node[lookaheadnode, label={[text=purple!80!black, font=\scriptsize\bfseries]above left:$w_{\text{la}}$}] (W) at (5.8, 4.2) {};
+
+        % Вектор интенции агента (направление к упреждению)
+        \draw[->, line width=2.0pt, blue!90!black] (A) -- (W);
+        % Дуга упреждения L = 2.6 м
+        \draw[<->, dashed, purple!85!black, line width=1.1pt] (A) to[bend right=32] node[midway, below right, font=\tiny\bfseries, fill=white, inner sep=1.2pt] {$L = 2.6\,\text{м}$} (W);
+
+        \node[startnode] at (s) {};
+        \node[font=\footnotesize\bfseries, anchor=south west] at (0.6, 1.3) {start};
+        \node[goalnode] at (g) {};
+        \node[font=\footnotesize\bfseries, anchor=east] at (5.55, 5.9) {goal};
+
+        \node[subcaption] at (3.5, -0.65) {(e) Путь Дейкстры и\\Sliding Lookahead};
+    \end{scope}
+
 \end{tikzpicture}
+
