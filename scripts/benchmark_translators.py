@@ -67,10 +67,10 @@ def _eval_single_planner(evaluator, planner, seeds, num_tasks, ep_per_task):
     return entry
 
 
-def _save_summary_tables(rows, output_dir, split):
+def _save_summary_tables(rows, output_dir, split, n_seeds=10):
     df = pd.DataFrame(rows)
     os.makedirs(output_dir, exist_ok=True)
-    csv_p, md_p = os.path.join(output_dir, f"benchmark_summary_10seeds_{split}.csv"), os.path.join(output_dir, f"benchmark_summary_10seeds_{split}.md")
+    csv_p, md_p = os.path.join(output_dir, f"benchmark_summary_{n_seeds}seeds_{split}.csv"), os.path.join(output_dir, f"benchmark_summary_{n_seeds}seeds_{split}.md")
     df.to_csv(csv_p, index=False)
     try:
         md_text = df.to_markdown(index=False)
@@ -91,7 +91,7 @@ def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_ta
     evaluator = ZeroShotEvaluator(env, agent, train_ds, cfg, env_name=f"ogbench-antmaze-{split}-navigate-v0", max_episode_steps=max_steps)
     planners = _init_candidate_planners(agent, train_ds["observations"], split, 2000 if split == "large" else 1000)
     rows = [_eval_single_planner(evaluator, p, seeds, num_tasks, episodes_per_task) for p in planners]
-    return _save_summary_tables(rows, output_dir, split)
+    return _save_summary_tables(rows, output_dir, split, len(seeds))
 
 
 def main():
