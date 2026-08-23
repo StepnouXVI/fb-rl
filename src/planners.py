@@ -502,24 +502,27 @@ class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
             return jnp.clip(a[0], -1.0, 1.0), z_cmd
         self._fused_enhanced_seq_step = _fused_step
 
-    def _prepare_sequence_inputs(self, obs_xy, goal_z):
-        best_idx, min_dist = _track_local_path_index(obs_xy, self.path_coords, self.current_path_idx, max_window=7)
+    def _prepare_sequence_inputs(self, obs, obs_xy, goal_z):
+        best_idx, min_dist = _track_local_path_index(obs_xy, self.path_coords, self.current_path_idx, max_window=5)
         if min_dist > 4.8 and len(self.path_coords) > 2:
-            self.reset(np.concatenate([obs_xy, np.zeros(27)]), goal_z)
+            self.reset(obs, goal_z)
             best_idx = 0
         self.current_path_idx = best_idx
 
         accum, target_idx = 0.0, self.current_path_idx
-        while target_idx < len(self.path_coords) - 1 and accum < self.lookahead_dist:
+        N_pts = len(self.path_coords)
+        while target_idx < N_pts - 1 and accum < self.lookahead_dist:
             accum += np.linalg.norm(self.path_coords[target_idx + 1] - self.path_coords[target_idx])
             target_idx += 1
 
         dist_final = float(np.linalg.norm(obs_xy - self.path_coords[-1]))
-        if dist_final < 1.8:
+        if target_idx >= N_pts - 1 or dist_final <= 2.2:
             future_latents, future_coords, is_direct = [goal_z], [self.path_coords[-1]], True
+            curr_c = self.path_coords[-1]
         else:
             future_latents = self.path_latents[target_idx:] + [goal_z]
-            future_coords = self.path_coords[target_idx:] + [self.path_coords[-1]]
+            future_coords = self.path_coords[target_idx:]
+            curr_c = self.path_coords[target_idx]
             is_direct = False
 
         curvs = _extract_curvature_angles(future_coords)
@@ -532,14 +535,13 @@ class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
             if i < len(curvs):
                 curv_arr[i, 0] = curvs[i]
 
-        curr_c = self.path_coords[-1] if is_direct else self.path_coords[target_idx]
         return pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final
 
     def sample_action(self, obs, goal_z, step=0, seed=None, temperature=0.0):
         if not self.path_coords:
             self.reset(obs, goal_z)
         obs_xy = np.asarray(obs[:2])
-        pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final = self._prepare_sequence_inputs(obs_xy, goal_z)
+        pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final = self._prepare_sequence_inputs(obs, obs_xy, goal_z)
 
         is_stuck, self.stuck_count = _check_stuck_state(self.pos_history, obs_xy, dist_final, self.stuck_count)
         if self.stuck_count > 45:
