@@ -2,3 +2,26 @@ name: "antmaze-giant-navigate-v0"
 split: "giant"
 max_episode_steps: 2600
 complex_task_name: null
+
+planner:
+  n_landmarks: 3000
+  lookahead_dist: 3.0
+  max_edge_radius: 4.0
+  reachability_cutoff: 40.0
+  stagnation_threshold: 0.4
+  stagnation_patience: 40
+  stagnation_temp: 0.25
+  recursive_bisection:
+    max_depth: 4
+    n_candidates: 600
+    hit_threshold: 40.0
+  single_wp:
+    hidden_dim: 384
+    n_layers: 4
+  enhanced_seq_attn:
+    hidden_dim: 384
+    num_heads: 6
+    n_layers: 4
+    window_size: 4
+    alibi_slope: 0.4
+    dropout_rate: 0.2

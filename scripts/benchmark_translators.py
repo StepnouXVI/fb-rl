@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 #!/usr/bin/env python3
 import os
 import sys
@@ -5,6 +6,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+from omegaconf import OmegaConf
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -14,6 +16,7 @@ from src.agent_loader import load_pretrained_agent
 from src.evaluator import ZeroShotEvaluator
 from src.planners import (
     BaselinePlanner,
+    RecursiveBisectionPlanner,
     BufferGraphPlanner,
     WaypointTranslatorPlanner,
     EnhancedSequenceWaypointAttentionPlanner,
@@ -29,8 +32,42 @@ def _find_checkpoint(name, dirs):
     return None
 
 
-def _init_candidate_planners(agent, train_obs, split, n_landmarks):
+def _load_env_config(split):
+    cfg_file = os.path.join(PROJECT_ROOT, "configs", "env", f"antmaze_{split}.yaml")
+    if os.path.exists(cfg_file):
+        try:
+            return OmegaConf.load(cfg_file)
+        except Exception:
+            pass
+    return OmegaConf.create({
+        "name": f"antmaze-{split}-navigate-v0", "split": split,
+        "max_episode_steps": 1500 if split in ["large", "giant"] else 1000,
+        "planner": {
+            "n_landmarks": 2000 if split == "large" else (3000 if split == "giant" else 1000),
+            "lookahead_dist": 2.6, "max_edge_radius": 3.5, "reachability_cutoff": 35.0,
+            "recursive_bisection": {"max_depth": 2 if split == "medium" else 3, "n_candidates": 200 if split == "medium" else 400, "hit_threshold": 35.0},
+            "single_wp": {"hidden_dim": 384, "n_layers": 4},
+            "enhanced_seq_attn": {"hidden_dim": 384, "num_heads": 6, "n_layers": 4},
+        }
+    })
+
+
+def _init_candidate_planners(agent, train_obs, split, env_cfg=None):
     dirs = [os.path.join(PROJECT_ROOT, "results", "checkpoints"), os.path.join(PROJECT_ROOT, "outputs", "checkpoints"), PROJECT_ROOT]
+    p_cfg = env_cfg.planner if env_cfg and hasattr(env_cfg, "planner") else {}
+    n_landmarks = int(p_cfg.get("n_landmarks", 2000 if split == "large" else 1000))
+    lookahead = float(p_cfg.get("lookahead_dist", 2.6))
+    max_radius = float(p_cfg.get("max_edge_radius", 3.5))
+    reach_cutoff = float(p_cfg.get("reachability_cutoff", 35.0))
+
+    rb_cfg = p_cfg.get("recursive_bisection", {})
+    rb_depth = int(rb_cfg.get("max_depth", 2 if split == "medium" else 3))
+    rb_cand = int(rb_cfg.get("n_candidates", 200 if split == "medium" else 400))
+    rb_hit = float(rb_cfg.get("hit_threshold", 35.0))
+
+    sw_cfg = p_cfg.get("single_wp", {})
+    esa_cfg = p_cfg.get("enhanced_seq_attn", {})
+
     enhanced_ckpt = _find_checkpoint(f"best_enhanced_sequence_attn_{split}.pkl", dirs) or _find_checkpoint(f"best_enhanced_seq_attn_{split}.pkl", dirs)
     single_wp_ckpt = _find_checkpoint(f"best_single_wp_{split}.pkl", dirs)
     jax_ckpt = _find_checkpoint(f"distilled_jax_gated_attn_{split}.pkl", dirs)
@@ -38,11 +75,12 @@ def _init_candidate_planners(agent, train_obs, split, n_landmarks):
         raise FileNotFoundError(f"Missing required checkpoints in {dirs} for split {split}!")
 
     return [
-        EnhancedSequenceWaypointAttentionPlanner(agent, train_obs, enhanced_ckpt, n_landmarks, hidden_dim=384, num_heads=6, n_layers=4, name="1. Dijkstra + Enhanced Sequence Attention"),
+        EnhancedSequenceWaypointAttentionPlanner(agent, train_obs, enhanced_ckpt, n_landmarks, hidden_dim=int(esa_cfg.get("hidden_dim", 384)), num_heads=int(esa_cfg.get("num_heads", 6)), n_layers=int(esa_cfg.get("n_layers", 4)), max_edge_radius=max_radius, reachability_cutoff=reach_cutoff, lookahead_dist=lookahead, name="1. Dijkstra + Enhanced Sequence Attention"),
         BaselinePlanner(agent, dataset_states=train_obs, name="2. Single-Intention Baseline"),
-        WaypointTranslatorPlanner(agent, train_obs, single_wp_ckpt, n_landmarks, hidden_dim=384, n_layers=4, name="3. Dijkstra + Single WP Translator"),
-        BufferGraphPlanner(agent, train_obs, n_landmarks=n_landmarks, name="4. Dijkstra Teacher (high_actor)"),
-        DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, model_type="gated_attn", name="5. Distilled JAX GatedAttn [O(1)]"),
+        RecursiveBisectionPlanner(agent, dataset_states=train_obs, max_depth=rb_depth, n_candidates=rb_cand, hit_threshold=rb_hit, name="3. Recursive Bisection Planner"),
+        WaypointTranslatorPlanner(agent, train_obs, single_wp_ckpt, n_landmarks, hidden_dim=int(sw_cfg.get("hidden_dim", 384)), n_layers=int(sw_cfg.get("n_layers", 4)), max_edge_radius=max_radius, reachability_cutoff=reach_cutoff, lookahead_dist=lookahead, name="4. Dijkstra + Single WP Translator"),
+        BufferGraphPlanner(agent, train_obs, n_landmarks=n_landmarks, max_edge_radius=max_radius, reachability_cutoff=reach_cutoff, lookahead_dist=lookahead, name="5. Dijkstra Teacher (high_actor)"),
+        DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, model_type="gated_attn", name="6. Distilled JAX GatedAttn [O(1)]"),
     ]
 
 
@@ -81,12 +119,13 @@ def _save_summary_tables(rows, output_dir, split, n_seeds=10):
     return df
 
 
-def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_tasks=5, episodes_per_task=10, seeds=None, output_dir="results/benchmarks"):
+def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_tasks=5, episodes_per_task=10, seeds=None, output_dir="results/benchmarks", **overrides):
     seeds = seeds or list(range(1, 11))
-    max_steps = 1500 if split in ["large", "giant"] else 1000
+    env_cfg = _load_env_config(split)
+    max_steps = overrides.get("max_episode_steps") or getattr(env_cfg, "max_episode_steps", 1500 if split in ["large", "giant"] else 1000)
     agent, env, train_ds, _, cfg = load_pretrained_agent(checkpoint_dir, split, seed=seeds[0], max_episode_steps=max_steps)
     evaluator = ZeroShotEvaluator(env, agent, train_ds, cfg, env_name=f"ogbench-antmaze-{split}-navigate-v0", max_episode_steps=max_steps)
-    planners = _init_candidate_planners(agent, train_ds["observations"], split, 2000 if split == "large" else 1000)
+    planners = _init_candidate_planners(agent, train_ds["observations"], split, env_cfg)
     rows = [_eval_single_planner(evaluator, p, seeds, num_tasks, episodes_per_task) for p in planners]
     return _save_summary_tables(rows, output_dir, split, len(seeds))
 
