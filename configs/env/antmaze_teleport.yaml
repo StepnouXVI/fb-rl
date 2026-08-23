@@ -1,0 +1,4 @@
+name: "antmaze-teleport-navigate-v0"
+split: "teleport"
+max_episode_steps: 1000
+complex_task_name: null

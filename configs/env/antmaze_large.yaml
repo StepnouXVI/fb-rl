@@ -1,0 +1,4 @@
+name: "antmaze-large-navigate-v0"
+split: "large"
+max_episode_steps: 1500
+complex_task_name: null

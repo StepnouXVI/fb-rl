@@ -84,7 +84,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # pip install torch torchvision
 
 # 4. Install Dependencies & OGBench
-pip install flax optax hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest
+pip install flax optax distrax ml_collections tensorflow-probability h5py hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest
 
 # Install OGBench from submodule or pip
 pip install ogbench

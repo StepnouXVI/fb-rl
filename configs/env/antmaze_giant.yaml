@@ -1,0 +1,4 @@
+name: "antmaze-giant-navigate-v0"
+split: "giant"
+max_episode_steps: 2600
+complex_task_name: null

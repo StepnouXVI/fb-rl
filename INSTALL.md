@@ -29,7 +29,7 @@ pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-re
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # 3. Core dependencies
-pip install flax optax hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest
+pip install flax optax distrax ml_collections tensorflow-probability h5py hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest
 
 # 4. Install OGBench
 pip install ogbench
@@ -49,7 +49,7 @@ pip install --upgrade "jax[cpu]"
 pip install torch torchvision
 
 # 3. Install core dependencies
-pip install flax optax hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest ogbench
+pip install flax optax distrax ml_collections tensorflow-probability h5py hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest ogbench
 ```
 
 ---

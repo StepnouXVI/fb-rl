@@ -1,0 +1,4 @@
+name: "antmaze-medium-navigate-v0"
+split: "medium"
+max_episode_steps: 1000
+complex_task_name: null
