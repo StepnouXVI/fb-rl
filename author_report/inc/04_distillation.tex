@@ -11,10 +11,13 @@
 
 Для обучения студента $T_\theta(s_t, B(g)) \to \hat{z}_t \in \mathbb{S}^{d-1}$ я собрал датасет пар $(s_t, B(g)) \to (z^*_t, a^*_t)$ от учителя Дейкстры и объединил 4 слагаемых в дифференцируемый лосс:
 \begin{equation}
-    \label{eq:distillation_loss}
-    \mathcal{L}_{\text{distill}} = \mathcal{L}_{\text{BC}} + 0.5 \mathcal{L}_{\text{Action}} - 0.02 \mathcal{L}_{\text{Reach}} - 0.05 \mathcal{L}_{\text{Goal}},
+\label{eq:distillation_loss}
+\begin{split}
+\mathcal{L}(\theta) = {} & \underbrace{(1 - \cos(\hat{z}_t, z^*_t)) + 0.1 \|\hat{z}_t - z^*_t\|^2}_{\mathcal{L}_{\text{BC}}} \\ + 0.5 \cdot \underbrace{\|\pi^\ell(s, \hat{z}) - a^*\|^2}_{\mathcal{L}_{\text{Action}}} 
+& - 0.02 \cdot \underbrace{F(s, \hat{z})^\top \hat{z}}_{\mathcal{L}_{\text{Reach}}} - 0.05 \cdot \underbrace{\hat{z}^\top B(g)}_{\mathcal{L}_{\text{Goal}}}
+\end{split}
 \end{equation}
-где $\mathcal{L}_{\text{BC}} = (1 - \cos(\hat{z}_t, z^*_t)) + 0.1 \|\hat{z}_t - z^*_t\|_2^2$ выравнивает вектор интенции с учителем на сфере; $\mathcal{L}_{\text{Action}} = \|\pi^\ell(s_t, \hat{z}_t) - a^*_t\|_2^2$ дифференцирует сквозь замороженную политику $\pi^\ell$ и штрафует за ошибки в крутящих моментах моторов робота; $\mathcal{L}_{\text{Reach}} = F(s_t, \hat{z}_t)^\top \hat{z}_t$ максимизирует меру физической проходимости пространства FB; а $\mathcal{L}_{\text{Goal}} = \hat{z}_t^\top B(g)$ удерживает проекцию вектора на глобальную цель.
+где $\mathcal{L}_{\text{BC}}$ выравнивает вектор интенции с учителем на сфере; $\mathcal{L}_{\text{Action}}$ дифференцирует сквозь замороженную политику $\pi^\ell$ и штрафует за ошибки в крутящих моментах моторов робота; $\mathcal{L}_{\text{Reach}}$ максимизирует меру физической проходимости пространства FB; а $\mathcal{L}_{\text{Goal}}$ удерживает проекцию вектора на глобальную цель.
 
 \begin{figure*}[t]
     \centering
@@ -45,4 +48,5 @@
     \end{tabular}
 \end{table}
 
-лучше всех оказался \textbf{Gated Cross-Attention}: он выбил на полном бенчмарке $84.3 \pm 4.8\% $ успешности (даже обогнав учителя Дейкстры) при инференсе всего \textbf{0.55~мс} на шаг!
+лучше всех оказался \textbf{Gated Cross-Attention}: он выбил на полном бенчмарке $84.3 \pm 4.8\% $ успешности (даже немного обогнав Дейкстру) при инференсе всего $0.55$ мс на шаг, что почти в два раза быстрее дейкстры. Но стоит учесть, что алгоритм дейкстры работает на процессоре, а нейросеть на видеокарте.
+

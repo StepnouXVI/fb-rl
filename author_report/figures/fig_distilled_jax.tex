@@ -23,9 +23,4 @@
     \draw[->, thick] (enc_g) -- (gate);
     \draw[->, thick] (gate) -- (proj);
     \draw[->, thick] (proj) -- (out);
-
-    % Нижняя плашка с лоссом
-    \node[draw=gray!60, fill=gray!8, rounded corners=4pt, minimum width=13.5cm, inner sep=5pt, align=center, font=\footnotesize] at (6.9, -1.8) {
-        \textbf{Дифференцируемый 4-компонентный лосс:} $\mathcal{L}(\theta) = \underbrace{\|\hat{z} - z^*\|^2}_{\mathcal{L}_{\text{BC}}} + 0.5 \cdot \underbrace{\|\pi^\ell(s, \hat{z}) - a^*\|^2}_{\mathcal{L}_{\text{Action}}} - 0.02 \cdot \underbrace{F(s, \hat{z})^\top \hat{z}}_{\mathcal{L}_{\text{Reach}}} - 0.05 \cdot \underbrace{\hat{z}^\top B(g)}_{\mathcal{L}_{\text{Goal}}}$
-    };
 \end{tikzpicture}
