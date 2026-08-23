@@ -402,7 +402,7 @@ class SequenceWaypointAttentionPlanner(BufferGraphPlanner):
 # ==============================================================================
 
 class DistilledJAXPlanner(BasePlanner):
-    def __init__(self, agent, model_type="gated_attn", checkpoint_path=None, hidden_dim=256, n_layers=3, name=None):
+    def __init__(self, agent, model_type="gated_attn", checkpoint_path=None, dataset_states=None, hidden_dim=256, n_layers=3, name=None):
         name = name or f"Distilled JAX ({model_type})"
         super().__init__(agent, name=name)
         self.student_def = build_flax_translator(model_type=model_type, latent_dim=agent.config["latent_dim"], hidden_dim=hidden_dim, n_layers=n_layers)
@@ -411,6 +411,14 @@ class DistilledJAXPlanner(BasePlanner):
                 self.params = flax.core.freeze(pickle.load(f)["params"])
         else:
             self.params = self.student_def.init(jax.random.PRNGKey(0), jnp.zeros((1, 29)), jnp.zeros((1, agent.config["latent_dim"])))["params"]
+
+        if dataset_states is not None:
+            n_samples = min(500, len(dataset_states))
+            idxs = np.random.default_rng(42).choice(len(dataset_states), size=n_samples, replace=False)
+            self.ref_coords = np.asarray(dataset_states[idxs][:, :2])
+            self.ref_latents = jnp.asarray(agent.normalize_z(agent.network.select("backward_repr")(jnp.asarray(dataset_states[idxs]))))
+        else:
+            self.ref_coords, self.ref_latents = None, None
 
         self.pos_history = []
         @functools.partial(jax.jit, static_argnames=("temp",))
@@ -433,8 +441,9 @@ class DistilledJAXPlanner(BasePlanner):
         is_stuck = bool(len(self.pos_history) >= 40 and float(np.linalg.norm(obs_xy - self.pos_history[0])) < 0.4)
         eval_temp = 0.2 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-        action, _ = self._fused_step(jnp.asarray(obs), jnp.asarray(goal_latent), self.params, seed_k, eval_temp)
-        self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": False}
+        action, z_cmd = self._fused_step(jnp.asarray(obs), jnp.asarray(goal_latent), self.params, seed_k, eval_temp)
+        decoded_xy = self.ref_coords[int(_jit_decode_latent_to_coords(z_cmd, self.ref_latents))].tolist() if self.ref_latents is not None else None
+        self.last_subgoal_info = {"subgoal_xy": decoded_xy, "waypoints_xy": [decoded_xy] if decoded_xy else [], "is_direct_goal": False}
         return np.asarray(action)
 
 

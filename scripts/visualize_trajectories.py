@@ -223,10 +223,14 @@ def extract_executed_waypoints(sg_df):
 def _render_markers_and_decorations(ax, init_xy, goal_xy, executed_wps, is_baseline, final_dist, title, steps_len, reached=False):
     ax.scatter(init_xy[0], init_xy[1], marker="o", color="#2e7d32", s=140, edgecolors="black", linewidth=1.5, zorder=6, label="Start (s0)")
     ax.scatter(goal_xy[0], goal_xy[1], marker="*", color="#ffd700", s=280, edgecolors="#b78103", linewidth=1.5, zorder=6, label="Final Goal (g)")
-    if executed_wps and not is_baseline:
+    if executed_wps:
         w_arr = np.array(executed_wps)
-        ax.plot(w_arr[:, 0], w_arr[:, 1], "r--", linewidth=1.8, alpha=0.75, zorder=4, label="Dijkstra Waypoints")
-        ax.scatter(w_arr[:, 0], w_arr[:, 1], marker="D", color="#e53935", s=50, edgecolors="black", zorder=5)
+        if is_baseline:
+            ax.plot(w_arr[:, 0], w_arr[:, 1], color="#e65100", linestyle="--", linewidth=1.6, alpha=0.75, zorder=4, label="Baseline Inferred Subgoals")
+            ax.scatter(w_arr[:, 0], w_arr[:, 1], marker="s", color="#ff9800", s=45, edgecolors="#e65100", zorder=5)
+        else:
+            ax.plot(w_arr[:, 0], w_arr[:, 1], "r--", linewidth=1.8, alpha=0.75, zorder=4, label="Planned Waypoints")
+            ax.scatter(w_arr[:, 0], w_arr[:, 1], marker="D", color="#e53935", s=50, edgecolors="black", zorder=5)
 
     status_str, status_col = ("SUCCESS", "#1b5e20") if reached else ("FAILED", "#b71c1c")
     ax.set_title(f"{title}\nStatus: {status_str} | Final Dist: {final_dist:.2f}m | Steps: {steps_len}", fontsize=9.5, fontweight="bold", color=status_col)

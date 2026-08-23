@@ -48,6 +48,19 @@
     ],
     "latex-workshop.latex.recipes": [
         {
+            "name": "latexmk 🔃",
+            "tools": [
+                "latexmk"
+            ]
+        },
+        {
+            "name": "pdflatex ➞ pdflatex",
+            "tools": [
+                "pdflatex",
+                "pdflatex"
+            ]
+        },
+        {
             "name": "pdflatex ➞ bibtex ➞ pdflatex`×2",
             "tools": [
                 "pdflatex",
@@ -60,12 +73,6 @@
             "name": "pdfLaTeX",
             "tools": [
                 "pdflatex"
-            ]
-        },
-        {
-            "name": "latexmk 🔃",
-            "tools": [
-                "latexmk"
             ]
         }
     ]

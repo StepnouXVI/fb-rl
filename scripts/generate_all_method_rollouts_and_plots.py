@@ -15,6 +15,7 @@ from src.evaluator import ZeroShotEvaluator
 from src.planners import (
     BaselinePlanner,
     BufferGraphPlanner,
+    RecursiveBisectionPlanner,
     WaypointTranslatorPlanner,
     EnhancedSequenceWaypointAttentionPlanner,
     DistilledJAXPlanner,
@@ -43,9 +44,10 @@ def _init_planners(agent, train_obs, split, n_landmarks):
     if seq_ckpt:
         planners.append(EnhancedSequenceWaypointAttentionPlanner(agent, train_obs, seq_ckpt, n_landmarks, name="Enhanced Sequence Attention"))
 
-    # 2. Single-Intention Baseline & Dijkstra Teacher
+    # 2. Single-Intention Baseline & Dijkstra Teacher & Recursive Bisection
     planners.append(BaselinePlanner(agent, train_obs, name="Single-Intention Baseline"))
     planners.append(BufferGraphPlanner(agent, train_obs, n_landmarks, name="Dijkstra Teacher"))
+    planners.append(RecursiveBisectionPlanner(agent, train_obs, name="Recursive Bisection"))
 
     # 3. Single WP Translator
     wp_ckpt = _find_checkpoint(f"best_single_wp_{split}.pkl", ckpt_dirs) or _find_checkpoint(f"checkpoint_single_wp_{split}.pkl", ckpt_dirs)
@@ -55,7 +57,7 @@ def _init_planners(agent, train_obs, split, n_landmarks):
     # 4. Distilled JAX GatedAttn
     jax_ckpt = _find_checkpoint(f"distilled_jax_gated_attn_{split}.pkl", ckpt_dirs)
     if jax_ckpt:
-        planners.append(DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, model_type="gated_attn", name="Distilled JAX GatedAttn"))
+        planners.append(DistilledJAXPlanner(agent, checkpoint_path=jax_ckpt, dataset_states=train_obs, model_type="gated_attn", name="Distilled JAX GatedAttn"))
 
     return planners
 
