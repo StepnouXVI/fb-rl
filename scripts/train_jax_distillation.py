@@ -56,10 +56,13 @@ def generate_or_load_golden_dataset(agent, train_obs, split="medium", n_pairs=10
 def _run_epoch_batches(step_fn, params, opt_state, train_data, batch_size, lambdas, rng, n_train):
     rng, perm_rng = jax.random.split(rng)
     perms = jax.random.permutation(perm_rng, n_train)
-    num_batches = n_train // batch_size
+    actual_bs = min(batch_size, n_train)
+    num_batches = max(1, n_train // actual_bs)
     metrics_list = []
     for b in range(num_batches):
-        idx = perms[b * batch_size : (b + 1) * batch_size]
+        idx = perms[b * actual_bs : (b + 1) * actual_bs if b < num_batches - 1 else n_train]
+        if len(idx) == 0:
+            continue
         batch = {k: train_data[k][idx] for k in ["state", "goal_z", "z_target", "a_target"]}
         params, opt_state, m = step_fn(params, opt_state, batch, lambdas)
         metrics_list.append({k: float(v) for k, v in m.items()})

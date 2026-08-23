@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-# ponytail: Compact statistical aggregator with bootstrap CI and Welch t-test
 def bootstrap_ci(data, num_bootstraps=2000, ci=95):
     if len(data) == 0:
         return 0.0, 0.0

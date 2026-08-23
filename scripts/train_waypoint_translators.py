@@ -115,9 +115,13 @@ def _setup_model_and_step_fn(cfg, obs_dim, latent_dim, frozen_fns, optimizer):
 def _run_training_epoch(mode, step_fn, params, opt_state, train_data, batch_size, lambdas, rng, n_train):
     rng, perm_rng = jax.random.split(rng)
     perms = jax.random.permutation(perm_rng, n_train)
-    num_batches, ep_metrics = n_train // batch_size, []
+    actual_bs = min(batch_size, n_train)
+    num_batches = max(1, n_train // actual_bs)
+    ep_metrics = []
     for b in range(num_batches):
-        idx = perms[b * batch_size : (b + 1) * batch_size]
+        idx = perms[b * actual_bs : (b + 1) * actual_bs if b < num_batches - 1 else n_train]
+        if len(idx) == 0:
+            continue
         if mode == "single_wp":
             batch = {"state": train_data["states"][idx], "w1_z": train_data["w1_zs"][idx], "final_goal_z": train_data["final_goals_z"][idx], "z_target": train_data["z_targets"][idx], "a_target": train_data["a_targets"][idx]}
             params, opt_state, m = step_fn(params, opt_state, batch, lambdas)
@@ -162,7 +166,9 @@ def main(cfg: DictConfig):
     train_data = {k: jnp.asarray(v[:n_train]) for k, v in dataset.items()}
     val_data = {k: jnp.asarray(v[n_train:]) for k, v in dataset.items()}
 
-    lr_schedule = optax.warmup_cosine_decay_schedule(1e-5, cfg.lr, int(0.05 * (n_train // cfg.batch_size) * cfg.epochs), (n_train // cfg.batch_size) * cfg.epochs, 1e-6)
+    total_steps = max(1, (n_train // cfg.batch_size) * cfg.epochs)
+    warmup_steps = min(total_steps - 1, max(0, int(0.05 * total_steps)))
+    lr_schedule = optax.warmup_cosine_decay_schedule(1e-5, cfg.lr, warmup_steps, total_steps, 1e-6)
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4))
     frozen_fns = {"actor": agent.network.select("actor"), "f": agent.network.select("forward_repr"), "b": agent.network.select("backward_repr")}
 

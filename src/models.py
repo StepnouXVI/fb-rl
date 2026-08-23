@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-# ponytail: 1D Efficient Channel Attention (ECA) module
 class ECALayer(nn.Module):
     def __init__(self, k_size=3):
         super().__init__()

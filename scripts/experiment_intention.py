@@ -183,22 +183,34 @@ def plot_scenario_results(summary, df_tel, waypoints, output_path, maze_type="me
 
 @hydra.main(version_base=None, config_path="../configs", config_name="experiment")
 def main(cfg: DictConfig):
-    out_dir = os.path.join(cfg.experiment.output_dir, "experiments")
+    exp_cfg = cfg.experiment if hasattr(cfg, "experiment") and cfg.experiment is not None else cfg
+    output_dir = exp_cfg.get("output_dir", "results")
+    out_dir = os.path.join(output_dir, "experiments") if not output_dir.endswith("experiments") else output_dir
     os.makedirs(out_dir, exist_ok=True)
-    agent, env, train_ds, _, fb_cfg = load_pretrained_agent(cfg.experiment.checkpoint_dir, cfg.env.split, seed=cfg.experiment.seed)
 
-    scenarios = [s for s in cfg.scenarios if cfg.experiment.scenario_name in ("all", s.get("name"))]
+    ckpt_dir = exp_cfg.get("checkpoint_dir", "fb-test")
+    split = cfg.env.split if hasattr(cfg, "env") and hasattr(cfg.env, "split") else exp_cfg.get("split", "medium")
+    seed = exp_cfg.get("seed", 0)
+    eval_temp = float(exp_cfg.get("eval_temperature", 0.0))
+    target_radius = float(exp_cfg.get("target_radius", 1.0))
+    terminate_on_goal = bool(exp_cfg.get("terminate_on_goal", True))
+    scenario_name = exp_cfg.get("scenario_name", "all") or "all"
+
+    agent, env, train_ds, _, fb_cfg = load_pretrained_agent(ckpt_dir, split, seed=seed)
+
+    scenarios = [s for s in cfg.scenarios if scenario_name in ("all", s.get("name"))]
     summaries = []
     cached_p = None
 
     for sc in tqdm(scenarios, desc="Executing Intention Scenarios"):
-        s_sum, df_tel, wps = run_scenario(agent, env, train_ds, fb_cfg, sc, cfg.experiment.eval_temperature, cfg.experiment.target_radius, cfg.experiment.terminate_on_goal, cfg.experiment.seed, cached_p)
+        s_sum, df_tel, wps = run_scenario(agent, env, train_ds, fb_cfg, sc, eval_temp, target_radius, terminate_on_goal, seed, cached_p)
         summaries.append(s_sum)
         df_tel.to_csv(os.path.join(out_dir, f"telemetry_{s_sum['name']}_{s_sum['mode']}.csv"), index=False)
-        plot_scenario_results(s_sum, df_tel, wps, os.path.join(out_dir, f"scenario_{s_sum['name']}_{s_sum['mode']}.png"), cfg.env.split, cfg.experiment.target_radius)
+        plot_scenario_results(s_sum, df_tel, wps, os.path.join(out_dir, f"scenario_{s_sum['name']}_{s_sum['mode']}.png"), split, target_radius)
 
     pd.DataFrame(summaries).to_csv(os.path.join(out_dir, "summary_experiments.csv"), index=False)
 
 
 if __name__ == "__main__":
     main()
+

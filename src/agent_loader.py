@@ -1,6 +1,5 @@
 import os, sys, json, pickle, flax, numpy as np
 
-# Auto-include baseline_repo in Python path
 for p in [
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "baseline_repo")),
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
@@ -12,7 +11,6 @@ from utils.env_utils import make_env_and_datasets
 from utils.datasets import HGCDataset
 from agents.fbpiswitch import FBpiSwitchAgent, get_config
 
-# ponytail: One clean loader function for restoring baseline agent and env
 def load_pretrained_agent(checkpoint_dir="fb-test", split="medium", seed=0, max_episode_steps=None):
     cfg_path = os.path.join(checkpoint_dir, split, "flags.json")
     params_path = os.path.join(checkpoint_dir, split, "params.pkl")
