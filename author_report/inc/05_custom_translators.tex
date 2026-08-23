@@ -23,14 +23,14 @@
 \begin{enumerate}[leftmargin=*,noitemsep]
     \item \textbf{Эмбеддинги кривизны (Curvature Tokens)}: Для каждой тройки вейпоинтов вычисляется косинус угла поворота:
     \addequation{
-        \cos \theta_k = \frac{\vec{v}_k \cdot \vec{v}_{k+1}}{\|\vec{v}_k\| \|\vec{v}_{k+1}\|}, \quad \text{где } \vec{v}_k = w_{k+1} - w_k.
+        \cos \theta_k = \frac{\vec{v}_k \cdot \vec{v}_{k+1}}{\|\vec{v}_k\| \|\vec{v}_{k+1}\|}, \quad \vec{v}_k = w_{k+1} - w_k.
     }{eq:curvature_angle}
     Это позволяет сети заранее «видеть» резкий поворот на 90 градусов и сбавлять скорость захода.
     \item \textbf{Затухание внимания (ALiBi Distance-Decay)}: В матрицу внимания вводится линейный штраф за удаленность:
     \addequation{
-        \text{Attn}(Q, K) = \text{Softmax}\left( \frac{Q K^\top}{\sqrt{d}} - \lambda \cdot m_h \cdot [0, 1, 2, \dots] \right),
+        \text{Attn}(Q, K) = \text{Softmax}\left( \frac{Q K^\top}{\sqrt{d}} - \lambda m_h \cdot \mathbf{d} \right),
     }{eq:alibi_decay}
-    где $\lambda = 0.4$, $m_h = \frac{h}{H}$. Это гарантирует, что 80\% энергии внимания концентрируется на ближайших маневрах, предотвращая опасную «утечку сквозь стены».
+    где $\mathbf{d} = [0, 1, \dots, K-1]$, $\lambda = 0.4$, $m_h = \frac{h}{H}$. Это гарантирует, что 80\% энергии внимания концентрируется на ближайших маневрах, предотвращая опасную «утечку сквозь стены».
     \item \textbf{Локально-глобальное окно (4+1)}: Внимание ограничивается 4 ближайшими точками + 1 терминальным токеном цели $[B(g)]$, что отсекает шум от далеких поворотов.
     \item \textbf{Вспомогательный лосс локализации}: $\mathcal{L}_{\text{aux}} = \|\hat{z}_{\text{seq}} - z^*_{\text{single\_wp}}\|^2$ (вес $0.2$), стабилизирующий ранние этапы обучения.
 \end{enumerate}
