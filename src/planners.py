@@ -16,10 +16,6 @@ from src.waypoint_translators import (
     build_flax_translator,
 )
 
-# ==============================================================================
-# Pure JIT-Compiled Execution Primitives (<0.05ms/step)
-# ==============================================================================
-
 @functools.partial(jax.jit, static_argnames=("temperature",))
 def _jit_baseline_step(agent, obs, goal_latent, seed=None, temperature=0.0):
     obs_b = obs[None, :] if obs.ndim == 1 else obs
@@ -53,10 +49,6 @@ def _jit_decode_latent_to_coords(latent, landmark_latents):
     z = latent / jnp.linalg.norm(latent, axis=-1, keepdims=True)
     return jnp.argmax(jnp.matmul(landmark_latents, z.T))
 
-
-# ==============================================================================
-# Helper Functions for Graph Path Planning & Curvature
-# ==============================================================================
 
 def _find_connected_landmarks(landmark_coords, landmark_latents, all_dist, obs_xy, goal_z):
     sims = np.asarray(jnp.matmul(landmark_latents, (goal_z / (np.linalg.norm(goal_z) + 1e-8)).T))
@@ -134,10 +126,6 @@ def _check_stuck_state(pos_history, obs_xy, dist_to_final, stuck_count):
     return is_stuck, stuck_count
 
 
-# ==============================================================================
-# Base & Baseline Planners
-# ==============================================================================
-
 class BasePlanner:
     def __init__(self, agent, name="BasePlanner"):
         self.agent = agent
@@ -182,10 +170,6 @@ class BaselinePlanner(BasePlanner):
             self.last_subgoal_info = {"subgoal_xy": None, "waypoints_xy": [], "is_direct_goal": True}
         return np.asarray(action)
 
-
-# ==============================================================================
-# Buffer Graph & Dijkstra Teacher Planner
-# ==============================================================================
 
 class BufferGraphPlanner(BasePlanner):
     """Offline RL planning using purely the Forward-Backward reachability model."""
@@ -283,10 +267,6 @@ class BufferGraphPlanner(BasePlanner):
             target_idx += 1
         return np.asarray(self.goal_z) if (target_idx >= len(self.path_coords) - 1 or float(np.linalg.norm(np.asarray(obs[:2]) - self.path_coords[-1])) <= 2.2) else np.asarray(self.path_latents[target_idx])
 
-
-# ==============================================================================
-# Recursive Bisection & PyTorch Distilled Planners
-# ==============================================================================
 
 class RecursiveBisectionPlanner(BasePlanner):
     def __init__(self, agent, dataset_states, max_depth=2, n_candidates=200, hit_threshold=35.0, name="Recursive Bisection"):
@@ -484,10 +464,6 @@ class WaypointTranslatorPlanner(BufferGraphPlanner):
         action, _ = self._fused_step(jnp.asarray(obs), jnp.asarray(target_latent), self.translator_params, seed_k, temperature)
         return np.asarray(action)
 
-
-# ==============================================================================
-# Enhanced Sequence Waypoint Attention Planner (Best SOTA Method)
-# ==============================================================================
 
 class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
     """Dijkstra Planner paired with Enhanced ALiBi Sequence Attention Transformer."""
