@@ -1,4 +1,13 @@
-import os, json, pickle, flax, numpy as np
+import os, sys, json, pickle, flax, numpy as np
+
+# Auto-include baseline_repo in Python path
+for p in [
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "baseline_repo")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+]:
+    if os.path.exists(p) and p not in sys.path:
+        sys.path.insert(0, p)
+
 from utils.env_utils import make_env_and_datasets
 from utils.datasets import HGCDataset
 from agents.fbpiswitch import FBpiSwitchAgent, get_config
