@@ -1,69 +1,73 @@
-# Zero-Shot Multi-Subgoal Planning with Forward-Backward Representations in Complex Maze Environments
+# Planning over Sequences of Intentions on Forward-Backward Representations in Complex Navigation Tasks
 
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
-[![JAX](https://img.shields.io/badge/JAX-0.4+-orange.svg)](https://github.com/google/jax)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
-[![Flax Linen](https://img.shields.io/badge/Flax-Linen-purple.svg)](https://github.com/google/flax)
-[![OGBench](https://img.shields.io/badge/OGBench-AntMaze-green.svg)](https://github.com/seohongpark/ogbench)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+An offline zero-shot hierarchical reinforcement learning framework for long-horizon, obstacle-dense continuous control navigation tasks in AntMaze. The approach combines Forward-Backward (FB) successor representations with topological graph search on replay buffer observations, sequence-aware attention translators with ALiBi and curvature tokens, and amortized JAX policy distillation.
 
-An offline, zero-shot hierarchical reinforcement learning framework that solves long-horizon, obstacle-dense continuous control navigation tasks by combining **Forward-Backward (FB) successor measure representations** with **Topological Graph Dijkstra Planning**, **ALiBi Sequence Attention Transformers**, and **Differentiable Physics-Grounded Policy Distillation**.
+---
+## PDF report
+[report.pdf](report.pdf)
+
+## Overview of Methods
+
+The framework investigates multi-subgoal planning over learned FB bilinear embeddings $F(s, z)^\top B(s')$ without environment map access or ground-truth simulator collision geometry:
+
+1. **Single-Intention Baseline ($\pi$-switch)**: Hierarchical baseline with a low-level continuous controller $\pi^\ell(a \mid s, z)$ and high-level goal-conditioned intention selector $\pi^h(s, B(g)) \to z$.
+2. **Recursive Bisection**: Divide-and-conquer intermediate waypoint selection by maximizing reachability sum $\arg\max_w [\log F(s, B(w))^\top B(w) + \log F(w, B(g))^\top B(g)]$.
+3. **Buffer Graph Dijkstra**: Directed topological reachability graph built on $N$ offline replay buffer states with distance/reachability threshold filtering and continuous sliding lookahead ($L = 2.6\,\text{m}$).
+4. **Distilled JAX Gated-Attention**: $O(1)$ amortized planner trained on teacher trajectories with a 4-component differentiable loss ($\mathcal{L}_{\text{BC}}$, $\mathcal{L}_{\text{Action}}$, $\mathcal{L}_{\text{Reach}}$, $\mathcal{L}_{\text{Goal}}$).
+5. **Single Waypoint Translator**: Neural translator $T_\theta(s_t, B(w_{\text{lookahead}})) \to z_{\text{cmd}}$ with adaptive gating and residual connections.
+6. **Enhanced Sequence Waypoint Attention Transformer**: Trajectory attention transformer over waypoint sequence $\mathcal{S} = [B(w_1), \dots, B(w_K), B(g)]$ with ALiBi position decay, turning angle tokens ($\cos \theta_k$), localized attention window ($4+1$), and auxiliary local anchor loss $\mathcal{L}_{\text{Aux}}$.
 
 ---
 
-## 🚀 Key Highlights
+## Benchmark Results
 
-- **Pure FB Geometry & Zero Map Cheating**: Operates with **zero access** to the environment's `maze_map`, wall coordinates, or simulator ground-truth collision geometries. All topological graphs and transitions are constructed strictly from offline buffer observations and the learned bilinear successor measure $F(s, z)^\top B(s')$.
-- **State-of-the-Art Benchmark Results (10 Random Seeds, 5 Tasks, 10-15 Episodes/Task)**:
-  - **AntMaze-Medium**:
-    - **93.3% Success Rate** (Dijkstra + Enhanced Sequence Attention)
-    - **86.2% Success Rate** ($O(1)$ Distilled JAX GatedAttn, **$0.10\,\text{ms}$/step**)
-    - Baseline: $42.5\%$.
-  - **AntMaze-Large**:
-    - **74.0% Success Rate** (Dijkstra + Enhanced Sequence Attention Transformer)
-    - **68.0% Success Rate** (Dijkstra + Single WP Translator)
-    - **56.0% Success Rate** ($O(1)$ Distilled JAX GatedAttn)
-    - Baseline: $24.0\%$.
-- **ALiBi Sequence Attention Transformer**: Incorporates distance-decay attention bias ($-\lambda \cdot m_h \cdot k$), local-global receptive windowing, and 2D trajectory curvature token encoding ($\cos \theta_k$) to eliminate wall phase-through artifacts.
-- **Ultra-Fast JIT Inference**: Full fusion in JAX/Flax delivers sub-millisecond execution ($< 0.10\,\text{ms}$/step for distilled policies, $< 0.40\,\text{ms}$ for sequence transformers).
-- **Clean, Modular Codebase**: Strict adherence to software engineering standards ($\le 50$ lines per function, 100% pytest coverage).
+Evaluation across 20 independent random seeds (5 test tasks, 10 episodes per task, 1,000 total episodes per method) on AntMaze Medium and Large environments. In Medium, episodes were limited to 1,000 steps; in Large, to 1,500 steps.
 
----
+### Main Summary Table
 
-## 📊 Benchmark Summary
+| # | Method | AntMaze Medium SR (%) | Latency (ms) | AntMaze Large SR (%) | Latency (ms) |
+|---|:---|:---:|:---:|:---:|:---:|
+| 1 | Single-Intention Baseline | 81.4 ± 4.5% | 0.95 | 49.3 ± 5.2% | 0.95 |
+| 2 | Recursive Bisection | 75.9 ± 6.4% | 2.82 | 46.5 ± 8.0% | 2.36 |
+| 3 | Dijkstra Teacher (`high_actor`) | 83.9 ± 3.2% | 0.85 | 48.7 ± 9.2% | 0.87 |
+| 4 | Distilled JAX GatedAttn [$O(1)$] | **84.3 ± 4.8%** | 0.55 | 45.6 ± 5.8% | 0.57 |
+| 5 | Dijkstra + Single WP Translator | 83.3 ± 5.0% | **0.53** | 57.1 ± 5.6% | **0.54** |
+| 6 | **Dijkstra + Enhanced Sequence Attn** | 83.6 ± 3.8% | 0.95 | **60.9 ± 6.9%** | 0.97 |
 
-### 1. AntMaze-Large Benchmark (10 Random Seeds, 5 Test Tasks, 10 Episodes/Task)
+### AntMaze Large Breakdown (20 Seeds, 1000 Episodes)
 
-| # | Method | Success Rate (%) | Latency (ms/step) | Task 01 (%) | Task 02 (%) | Task 03 (%) | Task 04 (%) | Task 05 (%) |
+| # | Method | Success Rate (%) | Latency (ms) | Task 01 (%) | Task 02 (%) | Task 03 (%) | Task 04 (%) | Task 05 (%) |
 |---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | **Single-Intention Baseline** | $24.0 \pm 8.0\%$ | $\mathbf{0.07\,\text{ms}}$ | $30.0\%$ | $10.0\%$ | $40.0\%$ | $20.0\%$ | $20.0\%$ |
-| 2 | **Dijkstra Teacher (high_actor)** | $60.0 \pm 8.9\%$ | $1.25\,\text{ms}$ | $80.0\%$ | $50.0\%$ | $60.0\%$ | $60.0\%$ | $50.0\%$ |
-| 3 | **Dijkstra + Single WP Translator** | $68.0 \pm 9.8\%$ | $0.22\,\text{ms}$ | $90.0\%$ | $60.0\%$ | $70.0\%$ | $70.0\%$ | $50.0\%$ |
-| 5 | **Dijkstra + Enhanced Sequence Transformer** | $\mathbf{74.0 \pm 8.0\%}$ | $0.38\,\text{ms}$ | $\mathbf{100.0\%}$ | $\mathbf{70.0\%}$ | $\mathbf{80.0\%}$ | $\mathbf{70.0\%}$ | $\mathbf{50.0\%}$ |
-| 6 | **Distilled JAX GatedAttn [$O(1)$]** | $56.0 \pm 8.0\%$ | $\mathbf{0.09\,\text{ms}}$ | $70.0\%$ | $50.0\%$ | $60.0\%$ | $60.0\%$ | $40.0\%$ |
+| 1 | Single-Intention Baseline | 49.3 ± 5.2% | 0.95 | 44.5% | 54.5% | 79.5% | 36.5% | 31.5% |
+| 2 | Recursive Bisection Planner | 46.5 ± 8.0% | 2.36 | 29.5% | 59.0% | 85.5% | 25.5% | 33.0% |
+| 3 | Dijkstra Teacher (`high_actor`) | 48.7 ± 9.2% | 0.87 | 56.0% | 65.5% | 55.5% | 32.0% | 34.5% |
+| 4 | Distilled JAX GatedAttn [$O(1)$] | 45.6 ± 5.8% | 0.57 | 50.0% | 68.0% | 55.0% | 28.0% | 27.0% |
+| 5 | Dijkstra + Single WP Translator | 57.1 ± 5.6% | **0.54** | 53.0% | 74.5% | 58.0% | 44.0% | 56.0% |
+| 6 | **Dijkstra + Enhanced Sequence Attn** | **60.9 ± 6.9%** | 0.97 | 53.0% | 66.5% | 72.0% | 54.0% | 59.0% |
 
----
+### AntMaze Medium Breakdown (20 Seeds, 1000 Episodes)
 
-### 2. AntMaze-Medium Benchmark (10 Random Seeds, 5 Test Tasks, 15 Episodes/Task)
-
-| # | Method | Success Rate (%) | Latency (ms/step) | Task 01 (%) | Task 02 (%) | Task 03 (%) | Task 04 (%) | Task 05 (%) |
+| # | Method | Success Rate (%) | Latency (ms) | Task 01 (%) | Task 02 (%) | Task 03 (%) | Task 04 (%) | Task 05 (%) |
 |---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | **Single-Intention Baseline** | $42.5 \pm 3.1\%$ | $\mathbf{0.08\,\text{ms}}$ | $26.7\%$ | $20.0\%$ | $73.3\%$ | $60.0\%$ | $33.3\%$ |
-| 2 | **Buffer Graph Dijkstra** | $93.3 \pm 1.4\%$ | $1.02\,\text{ms}$ | $100.0\%$ | $100.0\%$ | $80.0\%$ | $86.7\%$ | $100.0\%$ |
-| 3 | **Dijkstra + Enhanced Sequence Attention** | $\mathbf{94.7 \pm 1.2\%}$ | $0.35\,\text{ms}$ | $\mathbf{100.0\%}$ | $\mathbf{100.0\%}$ | $\mathbf{86.7\%}$ | $\mathbf{86.7\%}$ | $\mathbf{100.0\%}$ |
-| 4 | **Distilled JAX GatedAttn [$O(1)$]** | $86.2 \pm 1.8\%$ | $\mathbf{0.10\,\text{ms}}$ | $100.0\%$ | $93.3\%$ | $80.0\%$ | $73.3\%$ | $86.7\%$ |
+| 1 | Single-Intention Baseline | 81.4 ± 4.5% | 0.95 | 80.5% | 86.0% | 81.0% | 69.0% | 90.5% |
+| 2 | Recursive Bisection Planner | 75.9 ± 6.4% | 2.82 | 69.5% | 86.0% | 70.0% | 65.0% | 89.0% |
+| 3 | Dijkstra Teacher (`high_actor`) | 83.9 ± 3.2% | 0.85 | 72.0% | 88.5% | 89.5% | 80.5% | 89.0% |
+| 4 | Distilled JAX GatedAttn [$O(1)$] | **84.3 ± 4.8%** | 0.55 | 83.0% | 95.0% | 81.0% | 73.0% | 89.5% |
+| 5 | Dijkstra + Single WP Translator | 83.3 ± 5.0% | **0.53** | 82.5% | 86.5% | 87.0% | 69.0% | 91.5% |
+| 6 | **Dijkstra + Enhanced Sequence Attn** | 83.6 ± 3.8% | 0.95 | 87.5% | 85.0% | 87.5% | 70.0% | 88.0% |
 
 ---
 
-## 🛠️ Quick Installation Guide
+## Installation
 
 ### Prerequisites
 - Python 3.10
 - Conda / Micromamba
-- Linux (Ubuntu / NixOS / Debian) or macOS (Apple Silicon / Intel)
-- NVIDIA GPU with CUDA 12+ (optional for training acceleration; CPU inference fully supported)
+- MuJoCo and continuous control physics backend
 
-### Step-by-Step Setup
+### Setup Instructions
+
+#### Option 1: Quick Setup with `conda` and `requirements.txt` (Recommended)
 
 ```bash
 # 1. Clone repository
@@ -74,151 +78,149 @@ cd fb-rl
 conda create -n fb-rl python=3.10 -y
 conda activate fb-rl
 
-# 3. Install PyTorch & JAX
-# For CUDA 12 (Linux / NixOS):
+# 3. Install PyTorch & JAX (Select according to your hardware)
+
+# For Linux / Windows with CUDA 12:
 pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# For macOS / CPU:
-# pip install --upgrade "jax[cpu]"
-# pip install torch torchvision
+# For macOS (Apple Silicon MPS / CPU) or generic CPU:
+pip install --upgrade "jax[cpu]"
+pip install torch torchvision
 
-# 4. Install Dependencies & OGBench
-pip install flax optax distrax ml_collections tensorflow-probability h5py hydra-core omegaconf gymnasium mujoco tqdm matplotlib pandas plotly scipy scikit-learn tabulate pytest
+# 4. Install all dependencies from requirements.txt
+pip install -r requirements.txt
 
-# Install OGBench from submodule or pip
-pip install ogbench
+# 5. Verify the environment setup
+python verify_env.py
+```
+
+#### Option 2: Setup from `environment.yml`
+
+```bash
+# Create environment from file and install dependencies
+conda env create -f environment.yml
+conda activate fb-rl
+
+# Verify the environment setup
+python verify_env.py
 ```
 
 ---
 
-## 💻 How to Run
+## Usage
 
-### 1. Run Complete 10-Seed Benchmark
-
-Evaluate all methods (`Single-Intention Baseline`, `Dijkstra Teacher`, `Single WP Translator`, `Enhanced Sequence Attention`, `Distilled JAX GatedAttn`) on 10 seeds:
+### 1. Run Benchmarks
 
 ```bash
-# Benchmark on AntMaze Medium
+# AntMaze Medium benchmark (5 tasks, 10 episodes/task across all candidate planners)
 python scripts/benchmark_translators.py --split=medium --num_tasks=5 --episodes_per_task=10 --output_dir=results/benchmarks
 
-# Benchmark on AntMaze Large
+# AntMaze Large benchmark (5 tasks, 10 episodes/task across all candidate planners)
 python scripts/benchmark_translators.py --split=large --num_tasks=5 --episodes_per_task=10 --output_dir=results/benchmarks
 ```
 
-Output tables and summaries will be saved in `results/benchmarks/benchmark_summary_10seeds_{split}.csv` and `*.md`.
+Summary tables are automatically exported in Markdown and CSV to `results/benchmarks/`.
 
----
+### 2. Train Models
 
-### 2. Train Models from Scratch
-
-#### A. Train Differentiable JAX Latent Distillation ($O(1)$ Amortized Planner)
+#### Differentiable JAX Distillation (Amortized $O(1)$ Gated-Attention Policy)
 ```bash
-# Medium maze
+# Medium
 python scripts/train_jax_distillation.py --split=medium --model_type=gated_attn --epochs=35 --n_pairs=25000
 
-# Large maze
+# Large
 python scripts/train_jax_distillation.py --split=large --model_type=gated_attn --epochs=40 --n_pairs=60000
 ```
 
-#### B. Train Single Waypoint Translator
+#### Single Waypoint Translator
 ```bash
 python scripts/train_waypoint_translators.py split=medium mode=single_wp epochs=500 n_pairs=25000
 python scripts/train_waypoint_translators.py split=large mode=single_wp epochs=800 n_pairs=60000
 ```
 
-#### C. Train Enhanced Sequence-Aware Attention Transformer (Best SOTA)
+#### Enhanced Sequence Attention Transformer
 ```bash
 python scripts/train_waypoint_translators.py split=medium mode=enhanced_seq_attn epochs=600 n_pairs=25000
 python scripts/train_waypoint_translators.py split=large mode=enhanced_seq_attn epochs=1000 n_pairs=60000
 ```
 
----
-
 ### 3. Generate Trajectory Visualizations
 
 ```bash
-# Rollout and export all trajectory plots organized into results/{method_name}/{split}/{success,failed}/
+# Collect rollouts and generate per-method trajectory maze maps
 python scripts/generate_all_method_rollouts_and_plots.py --split=medium --num_tasks=5 --episodes_per_task=3
 python scripts/generate_all_method_rollouts_and_plots.py --split=large --num_tasks=5 --episodes_per_task=3
 ```
 
----
-
-### 4. Run Intention & Low-Level Control Physics Experiments
+### 4. Run Physics & Intention Experiments
 
 ```bash
-# Run multi-mode intention scenarios
+# Multi-mode intention experiments (direct latent, Dijkstra planner, custom waypoints)
 python scripts/experiment_intention.py env=antmaze_medium scenario_name=all
 
-# Run low-level physics control & straight-line waypoint comparison
+# Low-level continuous torque controller comparative analysis
 python scripts/experiment_lowlevel_control.py
 ```
 
----
+### 5. Generate Summary Plots & Pareto Curves
 
-### 5. Run Unit Tests
+```bash
+python scripts/generate_plots.py
+```
 
-Verify 100% passing test suite:
+### 6. Run Test Suite
+
 ```bash
 pytest tests/
 ```
 
 ---
 
-## 📁 Repository Directory Structure
+## Directory Structure
 
 ```
 fb-rl/
 ├── configs/                       # Hydra configuration files
-│   ├── config.yaml                # General benchmark config
-│   ├── experiment.yaml            # Intention scenario experiments
-│   └── train_translator.yaml      # Waypoint translator training config
-├── report/                        # LaTeX report & TikZ figures
-│   ├── figures/                   # Clean Russian/math TikZ vector schemes
-│   │   ├── fig1_framework_overview.tex
-│   │   ├── fig2_buffer_graph_dijkstra.tex
-│   │   ├── fig3_distilled_jax.tex
-│   │   ├── fig4_single_wp_translator.tex
-│   │   └── fig5_enhanced_sequence_transformer.tex
-│   ├── main.tex                   # Comprehensive Russian research paper
-│   └── report.pdf                 # Compiled paper PDF
-├── results/                       # Standardized output artifacts
-│   ├── benchmarks/                # JSON, CSV, MD summary tables
-│   ├── checkpoints/               # Trained Flax & PyTorch weights (.pkl, .pt)
-│   ├── data/                      # Trajectory step telemetry (.csv)
-│   ├── datasets/                  # Cached golden demonstration datasets (.npz)
-│   ├── experiments/               # Intention & low-level physics plots
-│   └── plots/                     # Publication comparison figures
-├── scripts/                       # Modular CLI & training execution scripts (<50 lines/fn)
-│   ├── benchmark_translators.py   # Multi-seed multi-task benchmark runner
-│   ├── experiment_intention.py    # Multi-scenario intention testing
-│   ├── experiment_lowlevel_control.py # 8-joint torque physics controller analysis
-│   ├── generate_all_method_rollouts_and_plots.py # Batch trajectory renderer
-│   ├── generate_plots.py          # Summary Pareto and bar charts
-│   ├── run_sequential_benchmarks.sh # Master unattended benchmark runner
-│   ├── train_jax_distillation.py  # JAX/Flax differentiable distillation trainer
-│   ├── train_waypoint_translators.py # Hydra-based translator trainer
-│   └── visualize_trajectories.py  # 2D AntMaze trajectory & portal visualizer
-├── src/                           # Core library modules (<50 lines/fn)
+│   ├── config.yaml                # Benchmark settings
+│   ├── experiment.yaml            # Intention scenario configurations
+│   └── train_translator.yaml      # Translator training parameters
+├── report/                        # Research report and TikZ sources
+│   ├── figures/                   # TikZ schemes and loss curves
+│   ├── inc/                       # Report section TeX sources
+│   ├── main.tex                   # Technical report LaTeX entrypoint
+│   ├── preamble.tex               # LaTeX preamble and packages
+│   └── main.pdf                   # Compiled technical report PDF
+├── results/                       # Evaluation outputs and model weights
+│   ├── benchmarks/                # Benchmark JSON and CSV results
+│   ├── checkpoints/               # Trained Flax and PyTorch model weights
+│   ├── data/                      # Rollout telemetry data
+│   ├── datasets/                  # Cached teacher demonstration datasets
+│   └── plots/                     # Trajectory visualization plots
+├── scripts/                       # Training, benchmarking, and visualization scripts
+│   ├── benchmark_translators.py   # Multi-task benchmark runner
+│   ├── experiment_intention.py    # Intention analysis experiment
+│   ├── experiment_lowlevel_control.py # Low-level controller experiment
+│   ├── generate_all_method_rollouts_and_plots.py # Batch trajectory visualizer
+│   ├── generate_plots.py          # Summary chart generation
+│   ├── generate_report_loss_curves.py # Training curve generator
+│   ├── train_jax_distillation.py  # JAX policy distillation trainer
+│   ├── train_waypoint_translators.py # Waypoint translator trainer
+│   └── visualize_trajectories.py  # Trajectory plotting utility
+├── src/                           # Core library modules
 │   ├── agent_loader.py            # Pretrained FB checkpoint loader
-│   ├── evaluator.py               # Zero-shot evaluation engine
+│   ├── evaluator.py               # Evaluation engine
+│   ├── metrics.py                 # Telemetry and success metrics
 │   ├── models.py                  # PyTorch student architectures
-│   └── waypoint_translators.py    # Flax models, ALiBi Attention, Loss steps
-└── tests/                         # Pytest test suite (34/34 passing)
+│   ├── planners.py                # Graph construction and Dijkstra planner
+│   └── waypoint_translators.py    # Flax models, ALiBi attention, and loss functions
+└── tests/                         # Pytest test suite
 ```
 
 ---
 
-## 📜 Citation & License
+## License
 
-This project is licensed under the MIT License. If you use this codebase or methodology in your research, please cite our technical report:
+MIT License.
 
-```bibtex
-@article{savvateev2026zeroshot,
-  title={Zero-Shot Multi-Subgoal Planning with Forward-Backward Representations in Complex Maze Environments},
-  author={Savvateev, Iaroslav},
-  journal={arXiv preprint},
-  year={2026}
-}
-```
+---

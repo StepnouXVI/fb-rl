@@ -1,0 +1,42 @@
+%!TEX root = ../main.tex
+\section*{Приложение: Динамика обучения и графики функций потерь}
+\addcontentsline{toc}{section}{Приложение: Динамика обучения и графики функций потерь}
+
+Для подтверждения устойчивости обучения и сходимости дифференцируемых лоссов ниже приведены экспериментальные кривые обучения нейросетевых модулей.
+
+\subsection*{А. Сходимость амортизированной JAX-дистилляции}
+
+На рис.~\ref{fig:loss_distillation} представлена динамика обучения модели \texttt{Distilled JAX Gated-Attention} на лабиринтах Medium и Large при оптимизаторе AdamW ($\text{lr} = 3 \times 10^{-4}$, $\text{batch\_size} = 256$).
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/loss_curves_distillation.pdf}
+    \caption{Динамика 4 компонент лосса нейросети дистилляции Distilled JAX Gated-Attention на Medium и Large: $\mathcal{L}_{\text{BC}}$ (поведенческое клонирование), $\mathcal{L}_{\text{Action}}$ (MSE действий моторов), $\mathcal{L}_{\text{Reach}}$ (мера достижимости FB) и $\mathcal{L}_{\text{Goal}}$ (выравнивание на глобальную цель).}
+    \label{fig:loss_distillation}
+\end{figure*}
+
+\noindent
+\textbf{Анализ сходимости дистилляции}:
+\begin{itemize}[leftmargin=*,noitemsep]
+    \item \textbf{Быстрая стабилизация $\mathcal{L}_{\text{BC}}$ и $\mathcal{L}_{\text{Action}}$}: за первые 15 эпох лосс клонирования снижается более чем на 75\%, а ошибка крутящих моментов моторов $\|\hat{a} - a^*\|^2$ падает ниже $0.012$.
+    \item \textbf{Рост достижимости $\mathcal{L}_{\text{Reach}}$}: скалярное произведение $F(s, \hat{z})^\top \hat{z}$ монотонно растет, подтверждая, что предсказанные интенции ведут в физически проходимые зоны.
+    \item \textbf{Глобальное выравнивание $\mathcal{L}_{\text{Goal}}$}: косинусное сходство с целевым вектором $\hat{z}^\top B(g)$ выходит на устойчивое плато.
+\end{itemize}
+
+\subsection*{Б. Динамика обучения трансляторов вейпоинтов}
+
+На рис.~\ref{fig:loss_translators} приведено сравнение процесса обучения одноточечного транслятора (\texttt{Single WP}) и трансформера траекторий (\texttt{Enhanced Sequence Attention}) по всем 4 компонентам целевой функции.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/loss_curves_translators.pdf}
+    \caption{Динамика 4 компонент лосса трансляторов вейпоинтов: $\mathcal{L}_{\text{BC}}$ (клонирование направления), $\mathcal{L}_{\text{Action}}$ (ошибка действий моторов), $\mathcal{L}_{\text{Local}}$ (выравнивание на первый вейпоинт $w_1$) и $\mathcal{L}_{\text{Aux}}$ (затухание локального якоря).}
+    \label{fig:loss_translators}
+\end{figure*}
+
+\noindent
+\textbf{Преимущества механизма внимания с ALiBi}:
+\begin{itemize}[leftmargin=*,noitemsep]
+    \item \textbf{Снижение Action MSE}: за счёт контекста будущих поворотов трансформер достигает ошибки действий $\mathcal{L}_{\text{Action}} < 0.008$, что более чем в 2 раза точнее одноточечного транслятора ($0.019$).
+    \item \textbf{Локальный якорь $\mathcal{L}_{\text{Aux}}$}: в первые 20 эпох вспомогательный регуляризатор $\mathcal{L}_{\text{Aux}}$ быстро штрафует ложное внимание к далёким точкам за стеной, гарантируя корректное формирование угла захода в поворот.
+\end{itemize}

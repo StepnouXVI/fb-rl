@@ -1,78 +1,9 @@
 \documentclass[10pt,twocolumn,letterpaper]{article}
+\input{preamble}
 
-\usepackage[utf8]{inputenc}
-\usepackage[T2A,T1]{fontenc}
-\usepackage[russian]{babel}
-\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools}
-\usepackage{booktabs,tabularx,multirow,colortbl}
-\usepackage{graphicx}
-\usepackage{xcolor}
-\usepackage{tikz}
-\usepackage{hyperref}
-\usepackage{microtype}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage{tcolorbox}
-\tcbuselibrary{skins,breakable}
-\usepackage{placeins}
-\usepackage{caption}
-\usepackage{subcaption}
-\usepackage{enumitem}
-\usepackage[margin=0.75in]{geometry}
+\title{\LARGE \bfseries Планировщик последовательностей интенций поверх Forward-Backward представлений в задачах сложной навигации}
 
-\definecolor{mainblue}{RGB}{31, 119, 180}
-\definecolor{darkblue}{RGB}{20, 70, 120}
-\definecolor{highlightorange}{RGB}{255, 127, 14}
-\definecolor{softgreen}{RGB}{44, 160, 44}
-\definecolor{softpurple}{RGB}{148, 103, 189}
-\definecolor{lightgraybg}{RGB}{245, 247, 250}
-\definecolor{bordergray}{RGB}{210, 215, 225}
-
-\hypersetup{
-    colorlinks=true,
-    linkcolor=mainblue,
-    citecolor=mainblue,
-    urlcolor=mainblue,
-    pdftitle={Высокоуровневое планирование последовательностей и амортизированная дистилляция в Forward-Backward представлениях},
-    pdfauthor={Исследовательский отчет FB-RL}
-}
-
-\newtcolorbox{keyinsight}[1][]{
-    enhanced,
-    colback=lightgraybg,
-    colframe=mainblue,
-    coltitle=white,
-    fonttitle=\bfseries\sffamily,
-    title={#1},
-    arc=4pt,
-    boxrule=1pt,
-    left=6pt,
-    right=6pt,
-    top=4pt,
-    bottom=4pt,
-    before skip=8pt,
-    after skip=8pt
-}
-
-\newtcolorbox{interviewbox}[1][]{
-    enhanced,
-    colback=lightgraybg,
-    colframe=highlightorange,
-    coltitle=white,
-    fonttitle=\bfseries\sffamily,
-    title={#1},
-    arc=4pt,
-    boxrule=1pt,
-    left=6pt,
-    right=6pt,
-    top=4pt,
-    bottom=4pt,
-    before skip=8pt,
-    after skip=8pt
-}
-
-\title{\LARGE \bfseries Высокоуровневое планирование над последовательностями интенций и амортизированная дистилляция в FB-представлениях:\\Преодоление горизонта застревания в сложных лабиринтах}
-\author{\textbf{Исследовательский и инженерный отчет} \\ Лаборатория обучения с подкреплением FB-RL \\ \texttt{github.com/StepnouXVI/fb-rl} (ветка: \texttt{optimization-and-translator})}
+\author{\textbf{Савватей Степанов}  \\ \texttt{github.com/StepnouXVI/fb-rl}}
 \date{Август 2026}
 
 \begin{document}
@@ -80,26 +11,15 @@
 \maketitle
 
 \begin{abstract}
-Zero-shot целенаправленное обучение с подкреплением (GCRL) на основе представлений Forward-Backward (FB) позволяет решать произвольные задачи достижения целей без дообучения в среде. Однако в задачах навигации на длинных горизонтах со сложной геометрией (\texttt{ogbench-antmaze-medium-navigate-v0}) стандартные иерархические контроллеры $\pi^h(s_t, B(g))$ сталкиваются с фундаментальной проблемой: единственный вектор интенции $z$ пытается вести агента напрямую сквозь стены в соседние коридоры, вызывая застревание муравья в углах (успешность бейзлайна 78.8\%). В данной работе мы систематически исследуем, формулируем и тестируем три взаимодополняющих подхода, строго соблюдая ограничение на использование только оффлайн-буфера и замороженных представлений $F, B, \pi^\ell$:
-\begin{enumerate}[leftmargin=*,noitemsep]
-    \item \textbf{Топологическое графовое планирование (\texttt{BufferGraphPlanner})}: Построение ориентированного графа достижимости $M(s, g) = F(s, B(g))^\top B(g)$ над ориентирами из буфера и поиск кратчайших траекторий Дейкстры.
-    \item \textbf{Амортизированная $O(1)$ дистилляция (\texttt{DistilledJAXPlanner})}: Сжатие вычислений Дейкстры в нейросетевой Gated Cross-Attention модуль, обученный сквозным градиентом JAX через замороженную политику $\pi^\ell$ и $F$, достигающий \textbf{85.0 $\pm$ 3.5\%} успеха при сверхнизкой латентности \textbf{0.56 мс/шаг}.
-    \item \textbf{Улучшенный трансформер внимания над последовательностями (\texttt{EnhancedSequencePlanner})}: Внедрение штрафа внимания ALiBi ($-\lambda m_h k$), локально-глобального окна, токенов кривизны $\cos \theta_k$ и вспомогательного локального лосса, обеспечивающее State-of-the-Art результат \textbf{88.0 $\pm$ 5.2\%} на 10 случайных сидах (500 эпизодов).
-\end{enumerate}
-Отчет содержит детальный теоретический и физический анализ динамики 8-суставного робота в MuJoCo, графики траекторий до/после, таблицы абляций и ответы на каверзные вопросы для защиты решения.
 \end{abstract}
 
-\input{sections/01_introduction.tex}
-\input{sections/02_related_work.tex}
-\input{sections/03_topological_planning.tex}
-\input{sections/04_distillation.tex}
-\input{sections/05_sequence_reasoning.tex}
-\input{sections/06_lowlevel_execution.tex}
-\input{sections/07_experiments.tex}
-\input{sections/08_interview_defense.tex}
-\input{sections/09_conclusion.tex}
-
-\bibliographystyle{plain}
-\bibliography{references}
+\input{inc/01_intro_and_fb}
+\input{inc/02_recursive_bisection}
+\input{inc/03_search_on_buffer}
+\input{inc/04_distillation}
+\input{inc/05_custom_translators}
+\input{inc/06_results_and_analysis}
+\input{inc/07_discussion_and_future_work}
+\input{inc/08_bibliography}
 
 \end{document}

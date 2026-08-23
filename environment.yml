@@ -5,20 +5,13 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - numpy
-  - scipy
-  - pandas
-  - matplotlib
-  - seaborn
-  - scikit-learn
-  - tqdm
-  - pyyaml
-  - h5py
+  - numpy>=1.23.0
+  - scipy>=1.10.0
+  - pandas>=2.0.0
+  - matplotlib>=3.7.0
+  - scikit-learn>=1.2.0
+  - tqdm>=4.65.0
+  - h5py>=3.8.0
   - pip:
-    - torch
-    - torchvision
-    - torchaudio
-    - hydra-core
-    - plotly
-    - mlflow
-    - ogbench
+    - -r requirements.txt
+

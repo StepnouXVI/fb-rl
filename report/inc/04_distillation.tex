@@ -1,0 +1,54 @@
+%!TEX root = ../main.tex
+\section{Идея 3: Дистилляция Дейкстры}
+
+\subsection{Зачем нам дистилляция и как мы это задумали}
+
+Граф Дейкстры работал отлично, но ради спортивного интереса и ускорения я решил проверить: \textit{а можно ли обучить компактную нейросеть-студента, которая за один прямой проход ($O(1)$) будет предсказывать идеальную интенцию напрямую в $\pi^\ell$, действуя как виртуальная Дейкстра?}
+
+Чисто механически сеть работает так же, как и бейзлайн: принимает $(s_t, B(g))$ и выдаёт одну интенцию. Но благодаря обучению на траекториях учителя она не пытается идти сквозь стены, а сразу выбирает правильный вектор обхода.
+
+\subsection{4-компонентный дифференцируемый лосс}
+
+Для обучения студента $T_\theta(s_t, B(g)) \to \hat{z}_t \in \mathbb{S}^{d-1}$ я собрал датасет пар $(s_t, B(g)) \to (z^*_t, a^*_t)$ от учителя Дейкстры и объединил 4 слагаемых в дифференцируемый лосс:
+\begin{equation}
+\label{eq:distillation_loss}
+\begin{split}
+\mathcal{L}(\theta) = {} & \underbrace{(1 - \cos(\hat{z}_t, z^*_t)) + 0.1 \|\hat{z}_t - z^*_t\|^2}_{\mathcal{L}_{\text{BC}}} \\
+& + 0.5 \cdot \underbrace{\|\pi^\ell(s, \hat{z}) - a^*\|^2}_{\mathcal{L}_{\text{Action}}} \\
+& - 0.02 \cdot \underbrace{F(s, \hat{z})^\top \hat{z}}_{\mathcal{L}_{\text{Reach}}} - 0.05 \cdot \underbrace{\hat{z}^\top B(g)}_{\mathcal{L}_{\text{Goal}}}
+\end{split}
+\end{equation}
+где $\mathcal{L}_{\text{BC}}$ выравнивает вектор интенции с учителем на сфере; $\mathcal{L}_{\text{Action}}$ дифференцируется сквозь замороженную политику $\pi^\ell$ и штрафует за ошибки в крутящих моментах моторов робота; $\mathcal{L}_{\text{Reach}}$ максимизирует меру физической проходимости пространства FB; а $\mathcal{L}_{\text{Goal}}$ удерживает проекцию вектора на глобальную цель.
+
+\begin{figure*}[t]
+    \centering
+    \input{figures/fig_distilled_jax.tex}
+    \caption{Схема дистиллированного планировщика Distilled JAX Gated-Attention с дифференцируемым физическим лоссом.}
+    \label{fig:distilled_jax}
+    \vspace{-2mm}
+\end{figure*}
+
+\subsection{Какая архитектура показала себя лучше всего?}
+
+Я поэкспериментировал с 4 архитектурами нейросетей (табл.~\ref{tab:arch_comparison}): обычным перцептроном MLP, остаточными блоками ResNet-ECA (с 1D-канальным вниманием), Dense-ECA и Gated Cross-Attention.
+
+\begin{table}[H]
+    \centering
+    \footnotesize
+    \setlength{\tabcolsep}{4pt}
+    \caption{Сравнение архитектур дистилляции на Medium}
+    \label{tab:arch_comparison}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{Архитектура} & \textbf{Парам.} & \textbf{Cos-Sim} & \textbf{SR (\%)} & \textbf{Время} \\
+        \midrule
+        Standard MLP & 312K & 0.891 & 78.0\% & 0.12 мс \\
+        Dense-ECA & 458K & 0.914 & 82.0\% & 0.16 мс \\
+        ResNet-ECA & 524K & 0.908 & 80.0\% & 0.15 мс \\
+        \textbf{Gated Cross-Attn} & \textbf{680K} & \textbf{0.942} & \textbf{86.0\%} & \textbf{0.18 мс} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Лучше всех оказался \textbf{Gated Cross-Attention}: он показал на бенчмарке $84.3 \pm 4.8\%$ успешности (даже немного обогнав Дейкстру) при инференсе всего $0.55$~мс на шаг, что почти в два раза быстрее Дейкстры. Но стоит учесть, что алгоритм Дейкстры работает на CPU, а нейросеть — на GPU.
+

@@ -1,0 +1,34 @@
+%!TEX root = ../main.tex
+\begin{tikzpicture}[>=stealth, font=\small, scale=0.88, every node/.style={transform shape}]
+    % Токены цепочки вейпоинтов
+    \node[draw=blue!70, fill=blue!10, rounded corners=3pt, minimum width=1.6cm, align=center] (w1) at (0, 3.2) {$B(w_1)$\\$+ \cos \theta_1$};
+    \node[draw=blue!70, fill=blue!10, rounded corners=3pt, minimum width=1.6cm, align=center] (w2) at (2.0, 3.2) {$B(w_2)$\\$+ \cos \theta_2$};
+    \node[draw=blue!70, fill=blue!10, rounded corners=3pt, minimum width=1.6cm, align=center] (w3) at (4.0, 3.2) {$B(w_3)$\\$+ \cos \theta_3$};
+    \node[draw=blue!70, fill=blue!10, rounded corners=3pt, minimum width=1.6cm, align=center] (w4) at (6.0, 3.2) {$B(w_4)$\\$+ \cos \theta_4$};
+    \node[draw=orange!80, fill=orange!15, rounded corners=3pt, minimum width=1.6cm, align=center] (wg) at (8.4, 3.2) {$B(g)$\\(Финиш)};
+
+    % Фигурная скобка: 4 локальных + 1 глобальный
+    \draw[decorate, decoration={brace, amplitude=5pt}, thick] (7.0, 4.0) -- (-0.8, 4.0) node[midway, above=6pt, font=\scriptsize] {4 локальных вейпоинта};
+    \draw[decorate, decoration={brace, amplitude=5pt}, thick] (9.4, 4.0) -- (7.4, 4.0) node[midway, above=6pt, font=\scriptsize] {Глобальная цель};
+
+    % Блок Self-Attention
+    \node[draw=blue!80, fill=blue!20, rounded corners=4pt, minimum width=10.2cm, minimum height=0.8cm, align=center] (self_attn) at (4.2, 1.8) {Trajectory Self-Attention (моделирование формы коридора)};
+
+    % State Query
+    \node[draw=green!70!black, fill=green!15, rounded corners=4pt, minimum width=2.2cm, minimum height=0.8cm, align=center] (obs) at (-1.5, 0.4) {Состояние $s_t$\\$\mathbb{R}^{29}$};
+
+    % Cross-Attention с ALiBi
+    \node[draw=purple!80, fill=purple!20, rounded corners=5pt, minimum width=8.5cm, minimum height=1.1cm, align=center] (cross_attn) at (5.0, 0.4) {\textbf{Multi-Head Cross-Attention со штрафом ALiBi}\\$\text{Attn}(Q, K) = \text{Softmax}\left(\frac{Q K^\top}{\sqrt{d}} - \lambda \cdot m_h \cdot [0, 1, 2, \dots]\right)$};
+
+    % Проекция
+    \node[draw=red!70!black, fill=red!15, rounded corners=4pt, minimum width=2.2cm, minimum height=0.8cm, align=center] (out) at (11.0, 0.4) {\textbf{Интенция}\\$z_{\text{cmd}} \to \pi^\ell$};
+
+    \draw[->, thick] (w1) -- (0, 2.2);
+    \draw[->, thick] (w2) -- (2.0, 2.2);
+    \draw[->, thick] (w3) -- (4.0, 2.2);
+    \draw[->, thick] (w4) -- (6.0, 2.2);
+    \draw[->, thick] (wg) -- (8.4, 2.2);
+    \draw[->, thick] (self_attn) -- (4.2, 0.95);
+    \draw[->, thick] (obs) -- (cross_attn);
+    \draw[->, thick] (cross_attn) -- (out);
+\end{tikzpicture}
