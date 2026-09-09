@@ -75,7 +75,7 @@ def _backtrack_dijkstra_path(all_pred, start_idx, goal_idx, max_nodes):
 
 def _extract_corner_waypoints(path_coords, path_latents, lookahead_dist):
     if len(path_coords) <= 2:
-        return list(path_coords), list(path_latents)
+        return list(path_coords), list(path_latents), list(range(len(path_coords)))
     filtered = [0]
     accum = 0.0
     for k in range(1, len(path_coords) - 1):
@@ -88,7 +88,7 @@ def _extract_corner_waypoints(path_coords, path_latents, lookahead_dist):
             accum = 0.0
     if filtered[-1] != len(path_coords) - 1:
         filtered.append(len(path_coords) - 1)
-    return [path_coords[k] for k in filtered], [path_latents[k] for k in filtered]
+    return [path_coords[k] for k in filtered], [path_latents[k] for k in filtered], filtered
 
 
 def _track_local_path_index(obs_xy, path_coords, current_idx, max_window=7):
@@ -99,14 +99,14 @@ def _track_local_path_index(obs_xy, path_coords, current_idx, max_window=7):
     return search_start + best_offset, dists[best_offset]
 
 
-def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, current_seg=0, window=7):
+def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, current_seg=0, window=7, path_dists=None):
     """
     Computes exact continuous sliding lookahead coordinate along the polyline path.
     Projects agent position onto path segments and marches forward by lookahead_dist.
     """
     N = len(path_coords)
     if N <= 1:
-        return np.array(path_coords[0]), 0
+        return np.array(path_coords[0]), 0, 0.0
 
     best_dist = float("inf")
     best_seg = current_seg
@@ -133,6 +133,13 @@ def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, curre
             best_t = t
             best_proj = proj
 
+    if path_dists is not None and best_seg < len(path_dists):
+        base_s = path_dists[best_seg]
+        seg_len = float(np.linalg.norm(path_coords[min(best_seg + 1, N - 1)] - path_coords[best_seg]))
+        s_agent = base_s + best_t * seg_len
+    else:
+        s_agent = float(best_seg)
+
     rem = float(lookahead_dist)
     curr_k = best_seg
     A = np.array(path_coords[curr_k])
@@ -143,7 +150,7 @@ def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, curre
 
     if rem <= rem_in_seg:
         c_t = best_proj + (rem / max(v_len, 1e-6)) * v
-        return c_t, best_seg
+        return c_t, best_seg, s_agent
 
     rem -= rem_in_seg
     curr_k += 1
@@ -155,11 +162,11 @@ def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, curre
         v_len = float(np.linalg.norm(v))
         if rem <= v_len:
             c_t = A + (rem / max(v_len, 1e-6)) * v
-            return c_t, best_seg
+            return c_t, best_seg, s_agent
         rem -= v_len
         curr_k += 1
 
-    return np.array(path_coords[-1]), best_seg
+    return np.array(path_coords[-1]), best_seg, s_agent
 
 
 def _extract_curvature_angles(coords):
@@ -277,7 +284,10 @@ class BufferGraphPlanner(BasePlanner):
         self.path_states = [np.asarray(self.landmarks[i]) for i in path]
         self.goal_z, self.current_path_idx, self.pos_history, self.stuck_count = goal_z, 0, [], 0
         self.current_seg = 0
-        self.waypoint_coords, self.waypoints = _extract_corner_waypoints(self.path_coords, self.path_latents, self.lookahead_dist)
+        self.waypoint_coords, self.waypoints, self.waypoint_indices = _extract_corner_waypoints(self.path_coords, self.path_latents, self.lookahead_dist)
+        self.path_dists = [0.0]
+        for i in range(len(self.path_coords) - 1):
+            self.path_dists.append(self.path_dists[-1] + float(np.linalg.norm(self.path_coords[i + 1] - self.path_coords[i])))
 
         curr_c = self.waypoint_coords[0] if self.waypoint_coords else None
         self.last_subgoal_info = {
@@ -593,8 +603,8 @@ class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
         pad_seq, seq_mask, curv_arr, curr_c_coarse, is_direct, dist_final = self._prepare_sequence_inputs(obs, obs_xy, goal_z)
 
         # Calculate exact continuous sliding lookahead point along the path
-        curr_c, self.current_seg = _compute_continuous_lookahead(
-            obs_xy, self.path_coords, self.lookahead_dist, getattr(self, "current_seg", 0)
+        curr_c, self.current_seg, s_agent = _compute_continuous_lookahead(
+            obs_xy, self.path_coords, self.lookahead_dist, getattr(self, "current_seg", 0), path_dists=getattr(self, "path_dists", None)
         )
         if is_direct:
             curr_c = np.array(self.path_coords[-1])
@@ -604,11 +614,21 @@ class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
             self.reset(obs, goal_z)
             self.stuck_count = 0
 
-        # Build attention targets: sliding lookahead point c_t first, then downstream corner waypoints and goal
-        future_wps = [w for w in self.waypoint_coords if np.linalg.norm(np.array(w) - curr_c) > 0.8]
-        attn_targets = [curr_c] + future_wps[:4]
-        if len(attn_targets) > 0 and np.linalg.norm(np.array(attn_targets[-1]) - np.array(self.path_coords[-1])) > 0.5:
-            attn_targets.append(self.path_coords[-1])
+        # Build attention targets: sliding lookahead point c_t first, then strictly downstream corner waypoints and goal
+        wp_indices = getattr(self, "waypoint_indices", list(range(len(self.waypoint_coords))))
+        path_dists = getattr(self, "path_dists", None)
+        downstream_wps = []
+        for w, k in zip(self.waypoint_coords, wp_indices):
+            s_wp = path_dists[k] if (path_dists is not None and k < len(path_dists)) else float(k)
+            if s_wp > s_agent + 0.8 and np.linalg.norm(np.array(w) - curr_c) > 0.8:
+                downstream_wps.append(w)
+
+        if is_direct:
+            attn_targets = [curr_c]
+        else:
+            attn_targets = [curr_c] + downstream_wps[:3]
+            if len(attn_targets) > 0 and np.linalg.norm(np.array(attn_targets[-1]) - np.array(self.path_coords[-1])) > 0.5:
+                attn_targets.append(self.path_coords[-1])
 
         slopes = np.exp(-0.4 * np.arange(len(attn_targets)))
         attn_weights = (slopes / np.sum(slopes)).tolist()

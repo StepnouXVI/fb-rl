@@ -75,12 +75,23 @@ def _collect_rollouts(evaluator, planners, seeds, num_tasks, ep_per_task):
     return pd.DataFrame(all_trajs), pd.DataFrame(all_sgs)
 
 
-def _export_results(df_traj, df_sg, split, base_out):
+def _export_results(df_traj, df_sg, split, base_out, filtered_methods=None):
     data_dir = os.path.join(base_out, "data")
     os.makedirs(data_dir, exist_ok=True)
     traj_p, sg_p = os.path.join(data_dir, f"trajectories_{split}.csv"), os.path.join(data_dir, f"subgoals_{split}.csv")
+    
+    if os.path.exists(traj_p) and filtered_methods:
+        old_traj = pd.read_csv(traj_p)
+        kept_traj = old_traj[~old_traj["method"].isin(filtered_methods)]
+        df_traj = pd.concat([kept_traj, df_traj], ignore_index=True)
     df_traj.to_csv(traj_p, index=False)
+
+    if os.path.exists(sg_p) and filtered_methods:
+        old_sg = pd.read_csv(sg_p)
+        kept_sg = old_sg[~old_sg["method"].isin(filtered_methods)]
+        df_sg = pd.concat([kept_sg, df_sg], ignore_index=True)
     df_sg.to_csv(sg_p, index=False)
+
     print(f"\nSaved telemetry datasets to {traj_p} & {sg_p}")
 
     print(f"\n--- Exporting Trajectory Images to {base_out}/<method>/{split}/ ---")
@@ -96,6 +107,7 @@ def main():
     parser.add_argument("--num_tasks", type=int, default=5)
     parser.add_argument("--episodes_per_task", type=int, default=2)
     parser.add_argument("--seeds", type=int, nargs="+", default=[1, 2])
+    parser.add_argument("--methods", type=str, nargs="+", default=None)
     parser.add_argument("--output_base_dir", type=str, default="results")
     args = parser.parse_args()
 
@@ -104,9 +116,14 @@ def main():
     evaluator = ZeroShotEvaluator(env, agent, train_ds, cfg, env_name=f"ogbench-antmaze-{args.split}-navigate-v0", max_episode_steps=max_steps)
     n_landmarks = 2000 if args.split == "large" else 1000
 
-    planners = _init_planners(agent, train_ds["observations"], args.split, n_landmarks)
+    all_planners = _init_planners(agent, train_ds["observations"], args.split, n_landmarks)
+    if args.methods:
+        planners = [p for p in all_planners if any(m.lower() in p.name.lower() for m in args.methods)]
+    else:
+        planners = all_planners
+
     df_traj, df_sg = _collect_rollouts(evaluator, planners, args.seeds, args.num_tasks, args.episodes_per_task)
-    _export_results(df_traj, df_sg, args.split, args.output_base_dir)
+    _export_results(df_traj, df_sg, args.split, args.output_base_dir, filtered_methods=[p.name for p in planners] if args.methods else None)
 
 
 if __name__ == "__main__":
