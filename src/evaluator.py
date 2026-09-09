@@ -9,18 +9,49 @@ from utils.datasets import Dataset, HGCDataset
 from utils.evaluation import supply_rng, flatten
 
 
-def _append_telemetry(traj_records, sg_records, planner_name, seed, task_id, ep, step, x, y, reward, done, sg_xy, is_direct, wps_json):
+def _append_telemetry(traj_records, sg_records, planner_name, seed, task_id, ep, step, obs, reward, done, action=None, sg_info=None, latency_ms=0.0):
+    obs = np.asarray(obs)
+    x = float(obs[0])
+    y = float(obs[1])
+    z = float(obs[2]) if len(obs) > 2 else 0.0
+    vx = float(obs[15]) if len(obs) > 17 else 0.0
+    vy = float(obs[16]) if len(obs) > 17 else 0.0
+    speed = float(np.hypot(vx, vy))
+    act_norm = float(np.linalg.norm(action)) if action is not None else 0.0
+    act_torques = [float(a) for a in action] if action is not None else []
+
     traj_records.append({
         "method": planner_name, "seed": int(seed), "task_id": int(task_id),
-        "episode": int(ep), "step": int(step), "x": float(x), "y": float(y),
-        "reward": float(reward), "done": bool(done),
+        "episode": int(ep), "step": int(step), "x": x, "y": y, "z": z,
+        "vx": vx, "vy": vy, "speed": speed, "action_norm": act_norm,
+        "action_torques": json.dumps(act_torques),
+        "reward": float(reward), "done": bool(done), "latency_ms": float(latency_ms),
     })
+
+    sg_info = sg_info or {}
+    sg_xy = sg_info.get("subgoal_xy")
+    lh_xy = sg_info.get("lookahead_xy", sg_xy)
+    lookahead_x = float(lh_xy[0]) if lh_xy is not None else None
+    lookahead_y = float(lh_xy[1]) if lh_xy is not None else None
+    dist_sg = float(np.hypot(x - lookahead_x, y - lookahead_y)) if (lookahead_x is not None and lookahead_y is not None) else None
+
+    attn_targets = sg_info.get("attention_targets", [lh_xy] if lh_xy else [])
+    attn_weights = sg_info.get("attention_weights", [1.0] if lh_xy else [])
+    wps = sg_info.get("waypoints_xy", [])
+
     sg_records.append({
         "method": planner_name, "seed": int(seed), "task_id": int(task_id),
         "episode": int(ep), "step": int(step),
-        "subgoal_x": float(sg_xy[0]) if sg_xy is not None else None,
-        "subgoal_y": float(sg_xy[1]) if sg_xy is not None else None,
-        "is_direct_goal": bool(is_direct), "planned_waypoints": wps_json,
+        "subgoal_x": lookahead_x,
+        "subgoal_y": lookahead_y,
+        "lookahead_x": lookahead_x,
+        "lookahead_y": lookahead_y,
+        "dist_to_lookahead": dist_sg,
+        "attention_targets": json.dumps(attn_targets),
+        "attention_weights": json.dumps(attn_weights),
+        "is_direct_goal": bool(sg_info.get("is_direct_goal", False)),
+        "planned_waypoints": json.dumps(wps),
+        "stuck_count": int(sg_info.get("stuck_count", 0)),
     })
 
 
@@ -64,20 +95,21 @@ class ZeroShotEvaluator:
         done, step, traj = False, 0, [obs[:2].copy()]
         seed_key = jax.random.PRNGKey(ep_seed)
         sg_info = planner.get_subgoal_info()
-        wps_json = json.dumps(sg_info.get("waypoints_xy", []))
-        _append_telemetry(traj_recs, sg_recs, planner.name, seed, task_id, ep, step, obs[0], obs[1], 0.0, False, sg_info.get("subgoal_xy"), sg_info.get("is_direct_goal", False), wps_json)
+        _append_telemetry(traj_recs, sg_recs, planner.name, seed, task_id, ep, step, obs, 0.0, False, action=None, sg_info=sg_info, latency_ms=0.0)
 
         t0 = time.perf_counter()
         while not done:
+            t_step_start = time.perf_counter()
             action = planner.sample_action(obs, inferred_latent, step=step, seed=seed_key, temperature=eval_temp)
             sg_info = planner.get_subgoal_info()
             obs, reward, term, trunc, info = self.env.step(action)
+            step_lat = (time.perf_counter() - t_step_start) * 1000.0
             step += 1
             if max_steps is not None and step >= max_steps:
                 trunc = True
             done = term or trunc
             traj.append(obs[:2].copy())
-            _append_telemetry(traj_recs, sg_recs, planner.name, seed, task_id, ep, step, obs[0], obs[1], reward, done, sg_info.get("subgoal_xy"), sg_info.get("is_direct_goal", False), wps_json)
+            _append_telemetry(traj_recs, sg_recs, planner.name, seed, task_id, ep, step, obs, reward, done, action=action, sg_info=sg_info, latency_ms=step_lat)
 
         latency = (time.perf_counter() - t0) * 1000.0 / max(step, 1)
         return info, np.asarray(traj), latency

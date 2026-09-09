@@ -87,9 +87,12 @@ def _init_candidate_planners(agent, train_obs, split, env_cfg=None):
 def _eval_single_planner(evaluator, planner, seeds, num_tasks, ep_per_task):
     print(f"\nEvaluating: >>> {planner.name} <<< across {len(seeds)} seeds: {seeds}")
     seed_task_sr, seed_overall_sr, seed_latencies = defaultdict(list), [], []
+    collected_trajs, collected_sgs = [], []
     for s in seeds:
         for t_id in range(1, num_tasks + 1):
-            stats, _, _, _ = evaluator.evaluate_task(planner, t_id, ep_per_task, seed=s)
+            stats, _, traj_recs, sg_recs = evaluator.evaluate_task(planner, t_id, ep_per_task, seed=s)
+            collected_trajs.extend(traj_recs)
+            collected_sgs.extend(sg_recs)
             seed_task_sr[t_id].append(float(stats.get("success", 0.0)) * 100.0)
             seed_latencies.append(float(stats.get("latency_ms", 0.0)))
         task_mean = np.mean([seed_task_sr[t][-1] for t in range(1, num_tasks + 1)])
@@ -99,7 +102,7 @@ def _eval_single_planner(evaluator, planner, seeds, num_tasks, ep_per_task):
     entry = {"Method": planner.name, "Success Rate (%)": f"{np.mean(seed_overall_sr):.1f} ± {np.std(seed_overall_sr):.1f}", "Latency (ms)": f"{np.mean(seed_latencies):.2f}"}
     for t_id in range(1, num_tasks + 1):
         entry[f"Task {t_id:02d} (%)"] = f"{np.mean(seed_task_sr[t_id]):.1f}"
-    return entry
+    return entry, collected_trajs, collected_sgs
 
 
 def _save_summary_tables(rows, output_dir, split, n_seeds=10):
@@ -119,14 +122,57 @@ def _save_summary_tables(rows, output_dir, split, n_seeds=10):
     return df
 
 
-def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_tasks=5, episodes_per_task=10, seeds=None, output_dir="results/benchmarks", **overrides):
+def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_tasks=5, episodes_per_task=10, seeds=None, output_dir="results/benchmarks", methods=None, **overrides):
     seeds = seeds or list(range(1, 11))
     env_cfg = _load_env_config(split)
     max_steps = overrides.get("max_episode_steps") or getattr(env_cfg, "max_episode_steps", 1500 if split in ["large", "giant"] else 1000)
     agent, env, train_ds, _, cfg = load_pretrained_agent(checkpoint_dir, split, seed=seeds[0], max_episode_steps=max_steps)
     evaluator = ZeroShotEvaluator(env, agent, train_ds, cfg, env_name=f"ogbench-antmaze-{split}-navigate-v0", max_episode_steps=max_steps)
-    planners = _init_candidate_planners(agent, train_ds["observations"], split, env_cfg)
-    rows = [_eval_single_planner(evaluator, p, seeds, num_tasks, episodes_per_task) for p in planners]
+    all_planners = _init_candidate_planners(agent, train_ds["observations"], split, env_cfg)
+    if methods:
+        planners = [p for p in all_planners if any(m.lower() in p.name.lower() for m in methods)]
+    else:
+        planners = all_planners
+
+    rows, total_trajs, total_sgs = [], [], []
+    for p in planners:
+        entry, trajs, sgs = _eval_single_planner(evaluator, p, seeds, num_tasks, episodes_per_task)
+        rows.append(entry)
+        total_trajs.extend(trajs)
+        total_sgs.extend(sgs)
+
+    # Save comprehensive telemetry datasets
+    data_dir = os.path.join(PROJECT_ROOT, "results", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    traj_path = os.path.join(data_dir, f"trajectories_{split}.csv")
+    sg_path = os.path.join(data_dir, f"subgoals_{split}.csv")
+
+    if total_trajs:
+        new_traj_df = pd.DataFrame(total_trajs)
+        if os.path.exists(traj_path) and methods:
+            # Merge with existing data
+            old_df = pd.read_csv(traj_path)
+            # Filter out entries for the re-evaluated methods
+            method_names = [p.name for p in planners]
+            kept_df = old_df[~old_df["method"].isin(method_names)]
+            merged_df = pd.concat([kept_df, new_traj_df], ignore_index=True)
+            merged_df.to_csv(traj_path, index=False)
+        else:
+            new_traj_df.to_csv(traj_path, index=False)
+        print(f"Saved {len(new_traj_df)} trajectory records to {traj_path}")
+
+    if total_sgs:
+        new_sg_df = pd.DataFrame(total_sgs)
+        if os.path.exists(sg_path) and methods:
+            old_df = pd.read_csv(sg_path)
+            method_names = [p.name for p in planners]
+            kept_df = old_df[~old_df["method"].isin(method_names)]
+            merged_df = pd.concat([kept_df, new_sg_df], ignore_index=True)
+            merged_df.to_csv(sg_path, index=False)
+        else:
+            new_sg_df.to_csv(sg_path, index=False)
+        print(f"Saved {len(new_sg_df)} subgoal records to {sg_path}")
+
     return _save_summary_tables(rows, output_dir, split, len(seeds))
 
 
@@ -137,9 +183,12 @@ def main():
     parser.add_argument("--episodes_per_task", type=int, default=10)
     parser.add_argument("--start_seed", type=int, default=1)
     parser.add_argument("--end_seed", type=int, default=10)
+    parser.add_argument("--seeds", type=int, nargs="+", default=None)
+    parser.add_argument("--methods", type=str, nargs="+", default=None)
     parser.add_argument("--output_dir", type=str, default="results/benchmarks")
     args = parser.parse_args()
-    run_comprehensive_benchmark(split=args.split, num_tasks=args.num_tasks, episodes_per_task=args.episodes_per_task, seeds=list(range(args.start_seed, args.end_seed + 1)), output_dir=args.output_dir)
+    seed_list = args.seeds if args.seeds is not None else list(range(args.start_seed, args.end_seed + 1))
+    run_comprehensive_benchmark(split=args.split, num_tasks=args.num_tasks, episodes_per_task=args.episodes_per_task, seeds=seed_list, output_dir=args.output_dir, methods=args.methods)
 
 
 if __name__ == "__main__":

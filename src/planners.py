@@ -99,6 +99,69 @@ def _track_local_path_index(obs_xy, path_coords, current_idx, max_window=7):
     return search_start + best_offset, dists[best_offset]
 
 
+def _compute_continuous_lookahead(obs_xy, path_coords, lookahead_dist=2.6, current_seg=0, window=7):
+    """
+    Computes exact continuous sliding lookahead coordinate along the polyline path.
+    Projects agent position onto path segments and marches forward by lookahead_dist.
+    """
+    N = len(path_coords)
+    if N <= 1:
+        return np.array(path_coords[0]), 0
+
+    best_dist = float("inf")
+    best_seg = current_seg
+    best_t = 0.0
+    best_proj = path_coords[current_seg]
+
+    search_start = max(0, current_seg - 2)
+    search_end = min(N - 1, current_seg + window)
+
+    for k in range(search_start, search_end):
+        A = np.array(path_coords[k])
+        B = np.array(path_coords[k + 1])
+        v = B - A
+        v_norm_sq = float(np.dot(v, v))
+        if v_norm_sq < 1e-8:
+            t = 0.0
+        else:
+            t = float(np.clip(np.dot(obs_xy - A, v) / v_norm_sq, 0.0, 1.0))
+        proj = A + t * v
+        d = float(np.linalg.norm(obs_xy - proj))
+        if d < best_dist:
+            best_dist = d
+            best_seg = k
+            best_t = t
+            best_proj = proj
+
+    rem = float(lookahead_dist)
+    curr_k = best_seg
+    A = np.array(path_coords[curr_k])
+    B = np.array(path_coords[curr_k + 1])
+    v = B - A
+    v_len = float(np.linalg.norm(v))
+    rem_in_seg = (1.0 - best_t) * v_len
+
+    if rem <= rem_in_seg:
+        c_t = best_proj + (rem / max(v_len, 1e-6)) * v
+        return c_t, best_seg
+
+    rem -= rem_in_seg
+    curr_k += 1
+
+    while curr_k < N - 1:
+        A = np.array(path_coords[curr_k])
+        B = np.array(path_coords[curr_k + 1])
+        v = B - A
+        v_len = float(np.linalg.norm(v))
+        if rem <= v_len:
+            c_t = A + (rem / max(v_len, 1e-6)) * v
+            return c_t, best_seg
+        rem -= v_len
+        curr_k += 1
+
+    return np.array(path_coords[-1]), best_seg
+
+
 def _extract_curvature_angles(coords):
     K = len(coords)
     curvs = []
@@ -213,6 +276,7 @@ class BufferGraphPlanner(BasePlanner):
         self.path_latents = [self.landmark_latents[i] for i in path]
         self.path_states = [np.asarray(self.landmarks[i]) for i in path]
         self.goal_z, self.current_path_idx, self.pos_history, self.stuck_count = goal_z, 0, [], 0
+        self.current_seg = 0
         self.waypoint_coords, self.waypoints = _extract_corner_waypoints(self.path_coords, self.path_latents, self.lookahead_dist)
 
         curr_c = self.waypoint_coords[0] if self.waypoint_coords else None
@@ -526,15 +590,39 @@ class EnhancedSequenceWaypointAttentionPlanner(BufferGraphPlanner):
         if not self.path_coords:
             self.reset(obs, goal_z)
         obs_xy = np.asarray(obs[:2])
-        pad_seq, seq_mask, curv_arr, curr_c, is_direct, dist_final = self._prepare_sequence_inputs(obs, obs_xy, goal_z)
+        pad_seq, seq_mask, curv_arr, curr_c_coarse, is_direct, dist_final = self._prepare_sequence_inputs(obs, obs_xy, goal_z)
+
+        # Calculate exact continuous sliding lookahead point along the path
+        curr_c, self.current_seg = _compute_continuous_lookahead(
+            obs_xy, self.path_coords, self.lookahead_dist, getattr(self, "current_seg", 0)
+        )
+        if is_direct:
+            curr_c = np.array(self.path_coords[-1])
 
         is_stuck, self.stuck_count = _check_stuck_state(self.pos_history, obs_xy, dist_final, self.stuck_count)
         if self.stuck_count > 45:
             self.reset(obs, goal_z)
             self.stuck_count = 0
 
+        # Build attention targets: sliding lookahead point c_t first, then downstream corner waypoints and goal
+        future_wps = [w for w in self.waypoint_coords if np.linalg.norm(np.array(w) - curr_c) > 0.8]
+        attn_targets = [curr_c] + future_wps[:4]
+        if len(attn_targets) > 0 and np.linalg.norm(np.array(attn_targets[-1]) - np.array(self.path_coords[-1])) > 0.5:
+            attn_targets.append(self.path_coords[-1])
+
+        slopes = np.exp(-0.4 * np.arange(len(attn_targets)))
+        attn_weights = (slopes / np.sum(slopes)).tolist()
+
         eval_temp = 0.25 if is_stuck else temperature
         seed_k = jax.random.PRNGKey(step) if eval_temp > 0 else seed
-        self.last_subgoal_info = {"subgoal_xy": [float(curr_c[0]), float(curr_c[1])], "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords], "is_direct_goal": is_direct}
+        self.last_subgoal_info = {
+            "subgoal_xy": [float(curr_c[0]), float(curr_c[1])],
+            "lookahead_xy": [float(curr_c[0]), float(curr_c[1])],
+            "attention_targets": [[float(t[0]), float(t[1])] for t in attn_targets],
+            "attention_weights": [float(w) for w in attn_weights],
+            "waypoints_xy": [[float(c[0]), float(c[1])] for c in self.waypoint_coords],
+            "is_direct_goal": is_direct,
+            "stuck_count": int(self.stuck_count),
+        }
         action, _ = self._fused_enhanced_seq_step(jnp.asarray(obs), jnp.asarray(pad_seq), jnp.asarray(seq_mask), jnp.asarray(curv_arr), self.seq_params, seed_k, eval_temp)
         return np.asarray(action)
