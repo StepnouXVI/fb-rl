@@ -127,6 +127,8 @@ def run_comprehensive_benchmark(checkpoint_dir="fb-test", split="medium", num_ta
     env_cfg = _load_env_config(split)
     max_steps = overrides.get("max_episode_steps") or getattr(env_cfg, "max_episode_steps", 1500 if split in ["large", "giant"] else 1000)
     agent, env, train_ds, _, cfg = load_pretrained_agent(checkpoint_dir, split, seed=seeds[0], max_episode_steps=max_steps)
+    available_tasks = len(env.unwrapped.task_infos) if hasattr(env.unwrapped, "task_infos") else 5
+    num_tasks = min(num_tasks, available_tasks)
     evaluator = ZeroShotEvaluator(env, agent, train_ds, cfg, env_name=f"ogbench-antmaze-{split}-navigate-v0", max_episode_steps=max_steps)
     all_planners = _init_candidate_planners(agent, train_ds["observations"], split, env_cfg)
     if methods:
