@@ -6,12 +6,12 @@
 
 \subsection*{А. Сходимость амортизированной JAX-дистилляции}
 
-На рис.~\ref{fig:loss_distillation} представлена динамика обучения модели \texttt{Distilled JAX Gated-Attention} на лабиринтах Medium и Large при оптимизаторе AdamW ($\text{lr} = 3 \times 10^{-4}$, $\text{batch\_size} = 256$).
+На рис.~\ref{fig:loss_distillation} представлена динамика обучения модели \texttt{Direct Intention Gated-Attention} на лабиринтах Medium и Large при оптимизаторе AdamW ($\text{lr} = 3 \times 10^{-4}$, $\text{batch\_size} = 256$).
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/loss_curves_distillation.pdf}
-    \caption{Динамика 4 компонент лосса нейросети дистилляции Distilled JAX Gated-Attention на Medium и Large: $\mathcal{L}_{\text{BC}}$ (поведенческое клонирование), $\mathcal{L}_{\text{Action}}$ (MSE действий моторов), $\mathcal{L}_{\text{Reach}}$ (мера достижимости FB) и $\mathcal{L}_{\text{Goal}}$ (выравнивание на глобальную цель).}
+    \caption{Динамика 4 компонент лосса нейросети дистилляции Direct Intention Gated-Attention на Medium и Large: $\mathcal{L}_{\text{BC}}$ (поведенческое клонирование), $\mathcal{L}_{\text{Action}}$ (MSE действий моторов), $\mathcal{L}_{\text{Reach}}$ (мера достижимости FB) и $\mathcal{L}_{\text{Goal}}$ (выравнивание на глобальную цель).}
     \label{fig:loss_distillation}
 \end{figure*}
 

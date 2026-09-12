@@ -20,11 +20,11 @@ echo "=== Starting Full Training & Benchmark Pipeline for Large Maze on $(date) 
 echo "=============================================================================="
 
 # ------------------------------------------------------------------------------
-# Phase 1: Train Distilled JAX Gated-Attention on Large
+# Phase 1: Train Direct Intention Gated-Attention on Large
 # ------------------------------------------------------------------------------
 echo ""
-echo ">>> [Phase 1/4] Training Distilled JAX GatedAttn on Large..."
-$PYTHON_BIN scripts/train_jax_distillation.py \
+echo ">>> [Phase 1/4] Training Direct Intention GatedAttn on Large..."
+$PYTHON_BIN scripts/train_distillation.py \
     --split=large \
     --model_type=gated_attn \
     --epochs=100 \
@@ -66,7 +66,7 @@ $PYTHON_BIN scripts/train_waypoint_translators.py \
 # ------------------------------------------------------------------------------
 echo ""
 echo ">>> [Phase 4/4] Running Comprehensive 10-Seed Benchmark on Large..."
-$PYTHON_BIN scripts/benchmark_translators.py \
+$PYTHON_BIN scripts/benchmark.py \
     --split=large \
     --num_tasks=5 \
     --episodes_per_task=10 \

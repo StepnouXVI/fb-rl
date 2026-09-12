@@ -2,7 +2,7 @@
 defaults:
   - _self_
 
-mode: enhanced_seq_attn # 'single_wp', 'sequence_attn', or 'enhanced_seq_attn'
+mode: enhanced_seq_attn # 'single_wp', 'sequence_attention', or 'enhanced_seq_attn'
 split: medium
 checkpoint_dir: fb-test
 
@@ -18,7 +18,6 @@ n_layers: 4
 num_heads: 6
 dropout_rate: 0.2
 alibi_slope: 0.4
-local_window_size: 6
 
 # Training Hyperparameters
 epochs: 1000
@@ -32,7 +31,7 @@ l_goal: 0.05
 l_aux: 0.2
 
 # Logging & Output
-use_mlflow: true
+db_path: results/telemetry.db
 seed: 42
 
 hydra:
@@ -41,4 +40,3 @@ hydra:
   sweep:
     dir: outputs/train_translators/multirun_${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}_${mode}_${split}
-

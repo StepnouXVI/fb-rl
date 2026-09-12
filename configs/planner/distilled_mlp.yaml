@@ -1,9 +1,0 @@
-name: "Distilled Latent Policy (Branch 3)"
-type: "distilled_mlp"
-model_type: "dense_eca" # options: "mlp", "dense_eca", "dense_gated_attn", "resnet_eca"
-checkpoint_path: "results/distilled_mlp_medium.pt"
-hidden_dim: 256
-n_layers: 3
-num_heads: 4
-switch_distance: 1.5
-replan_interval: 20

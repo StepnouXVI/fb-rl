@@ -1,6 +1,0 @@
-name: "Recursive Bisection (Branch 1)"
-type: "recursive_bisection"
-max_depth: 4
-n_candidates: 300
-horizon_threshold: 0.25
-replan_interval: 50

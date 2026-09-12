@@ -60,3 +60,22 @@ results/*.npz
 !results/benchmarks/*.csv
 results/data/*.csv
 !results/data/*.csv.gz
+*.db
+*.db-wal
+*.db-shm
+results/*.db
+results/data/*.db
+results/aim/
+report/main.pdf
+
+# Plans and specs
+docs/
+
+results/plots/
+results/experiments/*.png
+results/experiments/*.csv
+results/checkpoints/*.pkl
+results/*/*/*/*.png
+results/*/*/*.png
+results/benchmarks/*seeds_medium.*
+results/benchmarks/history_*.json

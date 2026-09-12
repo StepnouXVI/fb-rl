@@ -13,7 +13,7 @@ mkdir -p outputs results/benchmarks
 
 # 1. Benchmark on Large Maze (20 Seeds)
 echo ">>> [1/2] Launching AntMaze Large Benchmark (20 Seeds, 5 Tasks, 10 Ep/Task)..."
-python scripts/benchmark_translators.py \
+python scripts/benchmark.py \
     --split=large \
     --num_tasks=5 \
     --episodes_per_task=10 \
@@ -23,7 +23,7 @@ python scripts/benchmark_translators.py \
 
 # 2. Benchmark on Medium Maze (20 Seeds)
 echo ">>> [2/2] Launching AntMaze Medium Benchmark (20 Seeds, 5 Tasks, 10 Ep/Task)..."
-python scripts/benchmark_translators.py \
+python scripts/benchmark.py \
     --split=medium \
     --num_tasks=5 \
     --episodes_per_task=10 \

@@ -85,7 +85,6 @@ def test_auto_detect_maze_type():
 def test_render_3panel_comparison_success_failed_split(tmp_path):
     out_dir = str(tmp_path / 'plots')
 
-    # Successful episode for Dijkstra
     df_succ = pd.DataFrame({
         'method': ['Buffer Graph Dijkstra (Branch 2)', 'Single-Intention Baseline'],
         'seed': [0, 0],
@@ -104,7 +103,6 @@ def test_render_3panel_comparison_success_failed_split(tmp_path):
     assert os.path.exists(file_succ)
     assert os.path.join(out_dir, 'medium', 'success') in file_succ
 
-    # Failed episode for Dijkstra
     df_fail = pd.DataFrame({
         'method': ['Buffer Graph Dijkstra (Branch 2)', 'Single-Intention Baseline'],
         'seed': [0, 0],
