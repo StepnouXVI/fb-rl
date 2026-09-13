@@ -66,6 +66,8 @@ results/data/*.csv
 results/*.db
 results/data/*.db
 results/aim/
+.aim/
+*.aim
 report/main.pdf
 
 # Plans and specs

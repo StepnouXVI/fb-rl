@@ -23,6 +23,7 @@ from src.agent import (
 )
 from src.agent_loader import load_pretrained_agent
 from src.evaluator import ZeroShotEvaluator
+from src.telemetry import AimTracker, build_pareto_figure, build_task_breakdown_figure
 from src.telemetry.db import TelemetryDatabase
 
 
@@ -222,6 +223,29 @@ def _save_summary_tables(
     return df
 
 
+def _log_aim_benchmark(
+    rows: List[Dict[str, Any]], split: str, n_seeds: int, aim_repo: str
+) -> None:
+    """Log benchmark evaluation metrics and Plotly figures to Aim repository."""
+    methods = [r["Method"] for r in rows]
+    success_rates = [float(r["Success Rate (%)"].split(" ± ")[0]) for r in rows]
+    stds = [float(r["Success Rate (%)"].split(" ± ")[1]) for r in rows]
+    latencies = [float(r["Latency (ms)"]) for r in rows]
+    task_keys = [k for k in rows[0].keys() if k.startswith("Task ")]
+    task_matrix = {r["Method"]: [float(r[k]) for k in task_keys] for r in rows}
+
+    fig_pareto = build_pareto_figure(methods, latencies, success_rates, stds)
+    fig_tasks = build_task_breakdown_figure(methods, task_matrix)
+
+    with AimTracker(repo=aim_repo, experiment=f"benchmark_{split}", run_name=f"bench_{split}_{n_seeds}s") as tr:
+        tr.set_params({"split": split, "n_seeds": n_seeds, "num_methods": len(methods)})
+        for i, m in enumerate(methods):
+            tr.track(success_rates[i], name="success_rate", context={"method": m})
+            tr.track(latencies[i], name="latency_ms", context={"method": m})
+        tr.track_figure(fig_pareto, name="pareto_frontier")
+        tr.track_figure(fig_tasks, name="task_breakdown")
+
+
 def run_comprehensive_benchmark(
     checkpoint_dir: str = "fb-test",
     split: str = "medium",
@@ -262,6 +286,7 @@ def run_comprehensive_benchmark(
     latent_sample = evaluator.get_inferred_latent(1, seed=seed_list[0])
     _warmup_agents(agents, train_ds["observations"][0], latent_sample)
 
+    aim_repo = overrides.get("aim_repo", os.path.join(PROJECT_ROOT, "results", "aim"))
     try:
         rows = []
         for ag in agents:
@@ -269,7 +294,12 @@ def run_comprehensive_benchmark(
                 evaluator, ag, seed_list, tasks_count, episodes_per_task, db, exp_id, split
             )
             rows.append(entry)
-        return _save_summary_tables(rows, output_dir, split, len(seed_list))
+        df = _save_summary_tables(rows, output_dir, split, len(seed_list))
+        try:
+            _log_aim_benchmark(rows, split, len(seed_list), aim_repo)
+        except Exception as e:
+            print(f"Aim logging warning: {e}")
+        return df
     finally:
         db.close()
 

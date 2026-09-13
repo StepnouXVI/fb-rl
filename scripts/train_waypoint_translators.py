@@ -20,6 +20,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.agent_loader import load_pretrained_agent
 from src.networks import SequenceAttentionNetwork, SingleWaypointNetwork
+from src.telemetry import AimTracker
 from src.telemetry.db import TelemetryDatabase
 from src.topology import DijkstraGraph
 from src.training import (
@@ -236,6 +237,21 @@ def _save_translator_checkpoints(
     return canonical_path
 
 
+def _prepare_train_data(
+    cfg: Any, agent: Any, train_ds: Any
+) -> Tuple[Dict[str, jnp.ndarray], int]:
+    """Prepare and slice waypoint sequence dataset into training arrays."""
+    cache_path = os.path.join(
+        PROJECT_ROOT, "results", "datasets", f"wp_dataset_{cfg.split}_{cfg.n_pairs}p_k{cfg.max_seq_len}.npz"
+    )
+    dataset = generate_waypoint_sequences_dataset(
+        agent, train_ds["observations"], cfg.n_pairs, cfg.noise_sigma,
+        cfg.max_seq_len, cfg.lookahead_dist, cfg.split, cache_path, cfg.seed,
+    )
+    n_train = int(0.9 * len(dataset["states"]))
+    return {k: jnp.asarray(v[:n_train]) for k, v in dataset.items()}, n_train
+
+
 def _execute_translator_epochs(
     cfg: Any,
     step_fn: Any,
@@ -248,8 +264,9 @@ def _execute_translator_epochs(
     n_train: int,
     db: TelemetryDatabase,
     train_run_id: str,
+    aim_tracker: Optional[AimTracker] = None,
 ) -> Tuple[Any, Optional[str]]:
-    """Execute training epochs, record telemetry to SQLite, and persist checkpoints."""
+    """Execute training epochs, record telemetry to SQLite and Aim, and persist checkpoints."""
     best_ckpt = None
     save_path = os.path.join(os.getcwd(), f"best_{cfg.mode}_{cfg.split}.pkl")
     for epoch in range(1, cfg.epochs + 1):
@@ -265,13 +282,16 @@ def _execute_translator_epochs(
             ckpt_path = _save_translator_checkpoints(params, cfg, os.getcwd(), save_path)
             best_ckpt = ckpt_path
         db.insert_training_epoch(
-            train_run_id,
-            epoch,
-            tr_m,
-            checkpoint_path=ckpt_path,
-            epoch_time_s=ep_time,
-            learning_rate=curr_lr,
+            train_run_id, epoch, tr_m,
+            checkpoint_path=ckpt_path, epoch_time_s=ep_time, learning_rate=curr_lr,
         )
+        if aim_tracker is not None:
+            for k, v in tr_m.items():
+                aim_tracker.track(v, name=k, epoch=epoch, step=step_idx)
+            aim_tracker.track(curr_lr, name="learning_rate", epoch=epoch, step=step_idx)
+            aim_tracker.track(ep_time, name="epoch_time_s", epoch=epoch, step=step_idx)
+            if ckpt_path:
+                aim_tracker.set_params({"best_checkpoint_path": ckpt_path})
         if epoch % 50 == 0 or epoch == cfg.epochs:
             print(f"Epoch {epoch:4d}/{cfg.epochs} | Loss: {tr_m['loss']:.4f} | CosSim: {tr_m['cos_sim']:.4f}")
     return params, best_ckpt
@@ -281,17 +301,7 @@ def _execute_translator_epochs(
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for training waypoint translator networks."""
     agent, _, train_ds, _, _ = load_pretrained_agent(cfg.checkpoint_dir, cfg.split, seed=cfg.seed)
-    cache_path = os.path.join(
-        PROJECT_ROOT, "results", "datasets", f"wp_dataset_{cfg.split}_{cfg.n_pairs}p_k{cfg.max_seq_len}.npz"
-    )
-    dataset = generate_waypoint_sequences_dataset(
-        agent, train_ds["observations"], cfg.n_pairs, cfg.noise_sigma,
-        cfg.max_seq_len, cfg.lookahead_dist, cfg.split, cache_path, cfg.seed,
-    )
-    n_total = len(dataset["states"])
-    n_train = int(0.9 * n_total)
-    train_data = {k: jnp.asarray(v[:n_train]) for k, v in dataset.items()}
-
+    train_data, n_train = _prepare_train_data(cfg, agent, train_ds)
     total_steps = max(1, (n_train // cfg.batch_size) * cfg.epochs)
     warmup_steps = min(total_steps - 1, max(0, int(0.05 * total_steps)))
     lr_sched = optax.warmup_cosine_decay_schedule(1e-5, cfg.lr, warmup_steps, total_steps, 1e-6)
@@ -304,30 +314,30 @@ def main(cfg: DictConfig) -> None:
         "b": agent.network.select("backward_repr"),
     }
     _, params, opt_state, step_fn = _setup_model_and_step_fn(
-        cfg, dataset["states"].shape[-1], agent.config["latent_dim"], frozen_fns, optimizer
+        cfg, train_data["states"].shape[-1], agent.config["latent_dim"], frozen_fns, optimizer
     )
     lambdas = {
         "l_cos": cfg.l_cos, "l_mse": cfg.l_mse, "l_action": cfg.l_action,
         "l_reach": cfg.l_reach, "l_goal": cfg.l_goal, "l_aux": float(cfg.get("l_aux", 0.2)),
     }
-
     db_path = getattr(cfg, "db_path", "results/telemetry.db")
     db_file = db_path if os.path.isabs(db_path) else os.path.join(PROJECT_ROOT, db_path)
     os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
     db = TelemetryDatabase(db_file)
+    run_name = f"translator_{cfg.mode}_{cfg.split}_s{cfg.seed}"
+    aim_repo = getattr(cfg, "aim_repo", os.path.join(PROJECT_ROOT, "results", "aim"))
     try:
-        run_name = f"translator_{cfg.mode}_{cfg.split}_s{cfg.seed}"
         train_run_id = db.create_training_run(
-            run_name=run_name,
-            model_type=cfg.mode,
-            split=cfg.split,
-            seed=int(cfg.seed),
-            config=OmegaConf.to_container(cfg, resolve=True),
+            run_name=run_name, model_type=cfg.mode, split=cfg.split,
+            seed=int(cfg.seed), config=OmegaConf.to_container(cfg, resolve=True),
         )
-        _, best_ckpt = _execute_translator_epochs(
-            cfg, step_fn, params, opt_state, train_data, lr_sched,
-            lambdas, jax.random.PRNGKey(cfg.seed), n_train, db, train_run_id,
-        )
+        with AimTracker(repo=aim_repo, experiment=f"train_{cfg.split}", run_name=run_name) as aim_tr:
+            aim_tr.set_params(OmegaConf.to_container(cfg, resolve=True))
+            aim_tr.add_tags([str(cfg.mode), str(cfg.split)])
+            _, best_ckpt = _execute_translator_epochs(
+                cfg, step_fn, params, opt_state, train_data, lr_sched,
+                lambdas, jax.random.PRNGKey(cfg.seed), n_train, db, train_run_id, aim_tr,
+            )
         db.finish_training_run(train_run_id, best_checkpoint_path=best_ckpt, status="completed")
     finally:
         db.close()

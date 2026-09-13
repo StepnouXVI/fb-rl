@@ -145,25 +145,63 @@ python scripts/train_waypoint_translators.py split=medium mode=enhanced_seq_attn
 python scripts/train_waypoint_translators.py split=large mode=enhanced_seq_attn epochs=1000 n_pairs=60000
 ```
 
-### 3. Generate Trajectory Visualizations
+### 3. Master Training & Benchmark Pipeline
+
+To run the complete end-to-end pipeline (training Sequence Attention, Single Waypoint, and Distillation models followed by multi-seed benchmarks across both Medium and Large mazes) in an isolated session:
 
 ```bash
-# Generate trajectory plots from benchmark rollouts
-python scripts/visualize_trajectories.py --split=medium
+# Run the master pipeline (runs in background or tmux)
+bash scripts/run_master_pipeline.sh
 ```
 
-### 4. Generate Summary Plots & Loss Curves
+---
+
+## Interactive Telemetry & Experiment Tracking (Aim + SQLite)
+
+The framework employs a **Dual Telemetry Architecture** designed for zero runtime latency, complete episode replayability, and rich interactive visual analysis:
+
+1. **Relational Episode Database (SQLite `results/data/telemetry.db`)**:
+   - Stores episode headers, start/goal coordinates, total steps, cross-track errors (CTE), spatial self-intersections, and full $(x, y, z, v_x, v_y, \text{action torques}, \text{attention weights})$ trajectory logs with WAL (Write-Ahead Logging) mode.
+2. **Interactive Telemetry Dashboard (Aim `results/aim`)**:
+   - Tracks real-time training losses ($\mathcal{L}_{\text{total}}$, $\mathcal{L}_{\cos}$, $\mathcal{L}_{\text{action}}$, $\mathcal{L}_{\text{reach}}$, $\mathcal{L}_{\text{goal}}$), cosine similarities, validation metrics, and learning rate schedules.
+   - Stores interactive **Plotly** figures:
+     - **Pareto Frontiers**: Inference Latency (ms) vs. Success Rate (%) trade-offs with standard error bars.
+     - **Task-by-Task Breakdowns**: Grouped bar charts comparing all architectures across tasks 1 to 5.
+     - **Trajectory & Attention Maps**: Ant trajectories overlayed with Dijkstra paths and transformer attention weights.
+
+### How to Launch Local Aim UI
+
+To start the local Aim web dashboard and inspect all training runs, benchmarks, and interactive Plotly figures:
 
 ```bash
-python scripts/generate_plots.py
-python scripts/generate_report_loss_curves.py
+# Start Aim UI server locally
+aim up --repo results/aim --port 43800
 ```
 
-### 5. Run Test Suite
+Once started, open your browser and navigate to:
+```
+http://localhost:43800
+```
+
+### Remote Server Sync (Optional)
+
+To synchronize local telemetry data (`results/aim/`) to a centralized Aim server or VPS:
 
 ```bash
-pytest tests/
+# Export and sync local Aim runs to remote server container
+bash scripts/sync_aim.sh
 ```
+
+---
+
+## Detailed Technical & Mathematical Guide
+
+For an exhaustive, pedagogical explanation of every mathematical formula, symbol breakdown table, physical interpretation, and architecture design decision, see:
+- [Complete Guide to FB-RL (Markdown)](docs/fb_rl_comprehensive_guide.md)
+  - **Explain Like I'm 5**: Metaphors and intuitive analogies for multi-joint locomotion and hierarchical planning.
+  - **Symbol-by-Symbol Breakdowns**: 46 analytical tables explaining every variable, index, and operator.
+  - **Mathematical Proofs & Derivations**: Successor measure factorization, $\sqrt{d}$ sphere geometry, TD-LSIF loss, and analytical gradients through the frozen actor $\nabla_\theta \mathcal{L}_{\text{action}}$.
+  - **Oral Defense & Exam Guide**: 10 comprehensive answers to challenging questions about FB representation theory and neural intention translation.
 
 ---
 
@@ -171,9 +209,11 @@ pytest tests/
 
 ```
 fb-rl/
-├── configs/                       # Configuration files
-│   ├── env/                       # AntMaze environment YAMLs
-│   └── train_translator.yaml      # Translator training parameters
+├── configs/                       # Hydra and OmegaConf configurations
+│   ├── env/                       # AntMaze environment YAMLs (medium, large)
+│   └── train_translator.yaml      # Translator training hyperparameters
+├── docs/                          # Comprehensive technical documentation
+│   └── fb_rl_comprehensive_guide.md # Complete FB-RL theory, math, and defense guide
 ├── report/                        # Research report and TikZ sources
 │   ├── figures/                   # TikZ schemes and loss curves
 │   ├── inc/                       # Report section TeX sources
@@ -181,29 +221,34 @@ fb-rl/
 │   ├── preamble.tex               # LaTeX preamble and packages
 │   └── main.pdf                   # Compiled technical report PDF
 ├── results/                       # Evaluation outputs and model weights
-│   ├── benchmarks/                # Benchmark JSON and CSV results
-│   ├── checkpoints/               # Trained Flax model weights
-│   ├── data/                      # SQLite telemetry database (telemetry.db)
-│   ├── datasets/                  # Cached teacher demonstration datasets
-│   └── plots/                     # Trajectory visualization plots
-├── scripts/                       # Training, benchmarking, and visualization scripts
-│   ├── benchmark.py               # Multi-task benchmark runner
-│   ├── generate_plots.py          # Summary chart generation
-│   ├── generate_report_loss_curves.py # Training curve generator
+│   ├── aim/                       # Local Aim experiment tracking repository (.aim)
+│   ├── benchmarks/                # Multi-seed benchmark summary tables (CSV/MD)
+│   ├── checkpoints/               # Trained neural network weights (.pkl)
+│   ├── data/                      # SQLite relational telemetry database (telemetry.db)
+│   └── datasets/                  # Offline demonstration datasets (npz)
+├── scripts/                       # Training, benchmarking, and sync scripts
+│   ├── benchmark.py               # Multi-seed StagedAgent benchmark runner
+│   ├── run_master_pipeline.sh     # Master end-to-end training & evaluation pipeline
+│   ├── sync_aim.sh                # RSync and central Aim server ingestion script
 │   ├── train_distillation.py      # Direct intention policy distillation trainer
-│   ├── train_waypoint_translators.py # Waypoint translator trainer
-│   └── visualize_trajectories.py  # Trajectory plotting utility
+│   └── train_waypoint_translators.py # Sequence Attention & Single WP translator trainer
 ├── src/                           # Core library modules
 │   ├── agent.py                   # Modular StagedAgent pipeline architecture
 │   ├── agent_loader.py            # Pretrained FB checkpoint loader
-│   ├── contexts.py                # Context data structures for agent pipelines
-│   ├── evaluator.py               # Zero-shot evaluation engine
+│   ├── contexts.py                # Pipeline context data structures
+│   ├── evaluator.py               # Deterministic zero-shot evaluation engine
 │   ├── networks.py                # Flax Linen neural network modules
 │   ├── stages.py                  # Modular pipeline execution stages
-│   ├── telemetry/                 # SQLite telemetry logging and metrics
+│   ├── telemetry/                 # Telemetry, metrics, and tracking modules
+│   │   ├── aim_fast.py            # Batched remote client transport patch
+│   │   ├── aim_tracker.py         # Aim Run lifecycle and metric tracker wrapper
+│   │   ├── db.py                  # SQLite database engine (TelemetryDatabase)
+│   │   ├── metrics.py             # CTE and geometric self-intersection metrics
+│   │   ├── plotting.py            # Dark-theme Plotly figure builders
+│   │   └── profiler.py            # High-resolution stage latency profiler
 │   ├── topology.py                # Graph construction and Dijkstra search
 │   └── training.py                # JIT-compiled differentiable loss steps
-└── tests/                         # Pytest test suite
+└── tests/                         # Pytest test suite (59 unit tests)
 ```
 
 ---
