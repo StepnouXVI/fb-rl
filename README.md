@@ -169,6 +169,14 @@ The framework employs a structured, robust telemetry and analytics pipeline desi
    - **Task-by-Task Breakdowns**: Grouped bar charts comparing all architectures across tasks 1 to 5.
    - **Trajectory & Navigation Maps**: Ant trajectories overlayed with Dijkstra paths, attention targets, and success/failure classifications.
 
+### Launch Interactive Analytics Dashboard (Streamlit)
+
+To launch the web dashboard for visual benchmark analysis, Pareto trade-offs, multi-metric radar charts, and interactive episode trajectory inspection:
+
+```bash
+streamlit run scripts/dashboard.py
+```
+
 ---
 
 ## Detailed Technical & Mathematical Guide
@@ -204,6 +212,7 @@ fb-rl/
 │   └── datasets/                  # Offline demonstration datasets (npz)
 ├── scripts/                       # Training and benchmarking scripts
 │   ├── benchmark.py               # Multi-seed StagedAgent benchmark runner
+│   ├── dashboard.py               # Interactive Streamlit + Plotly analytics dashboard
 │   ├── export_benchmark_telemetry.py # Telemetry export from SQLite
 │   ├── run_master_pipeline.sh     # Master end-to-end training & evaluation pipeline
 │   ├── train_distillation.py      # Direct intention policy distillation trainer
