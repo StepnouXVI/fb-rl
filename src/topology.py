@@ -1,7 +1,6 @@
 """Topological graph construction, shortest path search, and trajectory geometry utilities."""
 
-import functools
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import jax
 import jax.numpy as jnp
 import numpy as np

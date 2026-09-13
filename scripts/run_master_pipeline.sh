@@ -4,12 +4,9 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-PYTHON_BIN="/home/savvatej/Shared/conda/envs/fb-rl/bin/python"
-if [ ! -f "$PYTHON_BIN" ]; then
+PYTHON_BIN="${PYTHON_BIN:-$(which python3 2>/dev/null || which python 2>/dev/null)}"
+if [ -f "/opt/homebrew/Caskroom/miniconda/base/envs/fb-rl/bin/python" ]; then
     PYTHON_BIN="/opt/homebrew/Caskroom/miniconda/base/envs/fb-rl/bin/python"
-fi
-if [ ! -f "$PYTHON_BIN" ]; then
-    PYTHON_BIN="python"
 fi
 
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"

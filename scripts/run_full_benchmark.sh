@@ -3,9 +3,9 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-PYTHON="${PYTHON_BIN:-python3}"
-if [ -x "/home/savvatej/Shared/conda/envs/fb-rl/bin/python" ]; then
-    PYTHON="/home/savvatej/Shared/conda/envs/fb-rl/bin/python"
+PYTHON="${PYTHON_BIN:-$(which python3 2>/dev/null || which python 2>/dev/null)}"
+if [ -f "/opt/homebrew/Caskroom/miniconda/base/envs/fb-rl/bin/python" ]; then
+    PYTHON="/opt/homebrew/Caskroom/miniconda/base/envs/fb-rl/bin/python"
 fi
 
 mkdir -p outputs

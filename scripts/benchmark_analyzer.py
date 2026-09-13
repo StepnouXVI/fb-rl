@@ -94,7 +94,7 @@ def __(os, pd, sqlite3):
         if df.empty:
             return df
         counts = df["method"].value_counts()
-        valid_methods = counts[counts >= 50].index.tolist()
+        valid_methods = counts[counts >= 1].index.tolist()
         return df[df["method"].isin(valid_methods)].reset_index(drop=True)
 
     return load_split_episodes,
@@ -221,6 +221,8 @@ def __(Any, Dict, List, Tuple):
             "Clean Trajectory (1/loops)",
             "Speed",
         ]
+        if not methods:
+            return categories, {}
         min_lat = min(bundle[m]["lat_mean"] for m in methods)
         min_steps = min(bundle[m]["steps_mean"] for m in methods)
         max_spd = max(bundle[m]["spd_mean"] for m in methods)
@@ -295,6 +297,8 @@ def __(Any, Dict, List, go):
     ) -> go.Figure:
         """Construct Pareto frontier chart of latency versus success rate."""
         fig = go.Figure()
+        if not methods:
+            return fig
         for i, m in enumerate(methods):
             b = bundle[m]
             fig.add_trace(

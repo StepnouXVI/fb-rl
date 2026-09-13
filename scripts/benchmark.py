@@ -145,7 +145,7 @@ def _eval_agent_seed(
     task_sr: Dict[int, float] = {}
     latencies: List[float] = []
     for t_id in range(1, num_tasks + 1):
-        stats, _, _, _ = evaluator.evaluate_task(
+        stats, _ = evaluator.evaluate_task(
             agent, t_id, ep_per_task, seed=s, run_id=run_id
         )
         task_sr[t_id] = float(stats.get("success", 0.0)) * 100.0

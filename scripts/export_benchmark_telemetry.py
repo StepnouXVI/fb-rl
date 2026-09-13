@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def _query_method_episodes(

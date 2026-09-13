@@ -239,7 +239,7 @@ def test_evaluator_telemetry_integration(tmp_path):
     evaluator = ZeroShotEvaluator(
         env, agent_model, train_ds, cfg, max_episode_steps=5, db=db, run_id=run_id
     )
-    stats, trajs, _, _ = evaluator.evaluate_task(
+    stats, trajs = evaluator.evaluate_task(
         agent, task_id=1, num_episodes=1, eval_temperature=0.0, seed=0, run_id=run_id
     )
 

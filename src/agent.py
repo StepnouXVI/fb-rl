@@ -10,7 +10,6 @@ from src.contexts import (
     TopologicalPathContext,
 )
 from src.stages import (
-    AttentionFilter,
     DijkstraPathBuilder,
     DirectIntentionTranslator,
     HighLevelActor,

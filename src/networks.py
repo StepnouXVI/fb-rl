@@ -1,6 +1,6 @@
 """Neural network architectures for waypoint and sequence intention translation."""
 
-from typing import Any, Dict, Optional
+from typing import Optional
 import jax
 import jax.numpy as jnp
 import flax.linen as nn

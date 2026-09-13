@@ -13,13 +13,6 @@ from scripts.visualize_trajectories import (
     normalize_maze_type,
     auto_detect_maze_type,
     get_task_info,
-    draw_maze,
-    plot_path_with_teleports,
-    extract_executed_waypoints,
-    plot_trajectory_panel,
-    plot_landmarks_panel,
-    plot_multi_episode_panel,
-    plot_overview_grid,
     render_3panel_comparison,
     export_all_comparisons,
 )

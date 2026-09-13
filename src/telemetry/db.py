@@ -145,8 +145,8 @@ class TelemetryDatabase:
                 episode_idx INTEGER NOT NULL,
                 start_x REAL NOT NULL,
                 start_y REAL NOT NULL,
-                goal_x REAL NOT NULL,
-                goal_y REAL NOT NULL,
+                goal_x REAL,
+                goal_y REAL,
                 is_success INTEGER NOT NULL,
                 total_steps INTEGER NOT NULL,
                 total_reward REAL NOT NULL,
@@ -321,8 +321,8 @@ class TelemetryDatabase:
             int(data["episode_idx"]),
             float(data["start_x"]),
             float(data["start_y"]),
-            float(data["goal_x"]),
-            float(data["goal_y"]),
+            float(data["goal_x"]) if data.get("goal_x") is not None else None,
+            float(data["goal_y"]) if data.get("goal_y") is not None else None,
             int(bool(data["is_success"])),
             int(data["total_steps"]),
             float(data["total_reward"]),
@@ -518,15 +518,22 @@ class TelemetryDatabase:
         self_int = count_spatial_self_intersections(traj) if len(traj) >= 4 else 0
         path_coords, mean_cte, max_cte = _compute_episode_cte(path_rows, traj)
 
-        goal_x, goal_y = float(ep_row["goal_x"]), float(ep_row["goal_y"])
-        if goal_x == 0.0 and goal_y == 0.0 and path_coords and len(path_coords) > 0:
+        raw_gx, raw_gy = ep_row["goal_x"], ep_row["goal_y"]
+        goal_x = float(raw_gx) if raw_gx is not None else None
+        goal_y = float(raw_gy) if raw_gy is not None else None
+        if (goal_x is None or goal_y is None) and path_coords and len(path_coords) > 0:
             goal_x, goal_y = float(path_coords[-1][0]), float(path_coords[-1][1])
-        dist_final = float(np.hypot(traj[-1, 0] - goal_x, traj[-1, 1] - goal_y)) if len(traj) > 0 else float("inf")
+        has_goal = goal_x is not None and goal_y is not None
+        dist_final = (
+            float(np.hypot(traj[-1, 0] - goal_x, traj[-1, 1] - goal_y))
+            if len(traj) > 0 and has_goal
+            else float("inf")
+        )
         is_succ = bool(
             total_steps > 0
             and (
                 any(s["reward"] > 0.0 for s in step_rows)
-                or (dist_final <= target_radius and (goal_x != 0.0 or goal_y != 0.0))
+                or (has_goal and dist_final <= target_radius)
             )
         )
 

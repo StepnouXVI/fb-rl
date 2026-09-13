@@ -371,9 +371,6 @@ class SubgoalSelector(PipelineStage):
             ctx.attention_latents = latents
 
 
-AttentionFilter = SubgoalSelector
-
-
 class SequenceAttentionTranslator(PipelineStage):
     """Runs inference for sequence attention transformer model."""
 

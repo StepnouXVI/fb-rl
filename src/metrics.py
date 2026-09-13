@@ -5,10 +5,6 @@ import numpy as np
 from scipy import stats
 
 from src.telemetry.db import TelemetryDatabase
-from src.telemetry.metrics import (
-    compute_cross_track_errors,
-    count_spatial_self_intersections,
-)
 
 
 def bootstrap_ci(

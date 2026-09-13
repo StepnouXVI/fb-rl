@@ -29,8 +29,8 @@ def _init_episode_record(
     """Initialize episode header row to satisfy foreign key constraints for steps."""
     if db is None:
         return
-    gx = float(goal_xy[0]) if goal_xy is not None else 0.0
-    gy = float(goal_xy[1]) if goal_xy is not None else 0.0
+    gx = float(goal_xy[0]) if goal_xy is not None else None
+    gy = float(goal_xy[1]) if goal_xy is not None else None
     db.insert_episode(
         episode_id=ep_id,
         run_id=run_id,
@@ -220,7 +220,7 @@ class ZeroShotEvaluator:
 
         mean_stats = {k: float(np.mean(v)) for k, v in stats.items()}
         mean_stats["latency_ms"] = float(np.mean(latencies)) if latencies else 0.0
-        return mean_stats, trajs, [], []
+        return mean_stats, trajs
 
     def evaluate_all_tasks(
         self,
@@ -242,7 +242,7 @@ class ZeroShotEvaluator:
             leave=False,
         )
         for t_id in pbar:
-            task_stats, task_trajs, _, _ = self.evaluate_task(
+            task_stats, task_trajs = self.evaluate_task(
                 planner, t_id, num_episodes, eval_temperature, seed,
                 max_episode_steps, run_id=run_id
             )
