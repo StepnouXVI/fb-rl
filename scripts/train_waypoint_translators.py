@@ -20,7 +20,6 @@ if PROJECT_ROOT not in sys.path:
 
 from src.agent_loader import load_pretrained_agent
 from src.networks import SequenceAttentionNetwork, SingleWaypointNetwork
-from src.telemetry import AimTracker
 from src.telemetry.db import TelemetryDatabase
 from src.topology import DijkstraGraph
 from src.training import (
@@ -264,9 +263,8 @@ def _execute_translator_epochs(
     n_train: int,
     db: TelemetryDatabase,
     train_run_id: str,
-    aim_tracker: Optional[AimTracker] = None,
 ) -> Tuple[Any, Optional[str]]:
-    """Execute training epochs, record telemetry to SQLite and Aim, and persist checkpoints."""
+    """Execute training epochs, record telemetry to SQLite, and persist checkpoints."""
     best_ckpt = None
     save_path = os.path.join(os.getcwd(), f"best_{cfg.mode}_{cfg.split}.pkl")
     for epoch in range(1, cfg.epochs + 1):
@@ -285,13 +283,6 @@ def _execute_translator_epochs(
             train_run_id, epoch, tr_m,
             checkpoint_path=ckpt_path, epoch_time_s=ep_time, learning_rate=curr_lr,
         )
-        if aim_tracker is not None:
-            for k, v in tr_m.items():
-                aim_tracker.track(v, name=k, epoch=epoch, step=step_idx)
-            aim_tracker.track(curr_lr, name="learning_rate", epoch=epoch, step=step_idx)
-            aim_tracker.track(ep_time, name="epoch_time_s", epoch=epoch, step=step_idx)
-            if ckpt_path:
-                aim_tracker.set_params({"best_checkpoint_path": ckpt_path})
         if epoch % 50 == 0 or epoch == cfg.epochs:
             print(f"Epoch {epoch:4d}/{cfg.epochs} | Loss: {tr_m['loss']:.4f} | CosSim: {tr_m['cos_sim']:.4f}")
     return params, best_ckpt
@@ -325,19 +316,15 @@ def main(cfg: DictConfig) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
     db = TelemetryDatabase(db_file)
     run_name = f"translator_{cfg.mode}_{cfg.split}_s{cfg.seed}"
-    aim_repo = getattr(cfg, "aim_repo", os.path.join(PROJECT_ROOT, "results", "aim"))
     try:
         train_run_id = db.create_training_run(
             run_name=run_name, model_type=cfg.mode, split=cfg.split,
             seed=int(cfg.seed), config=OmegaConf.to_container(cfg, resolve=True),
         )
-        with AimTracker(repo=aim_repo, experiment=f"train_{cfg.split}", run_name=run_name) as aim_tr:
-            aim_tr.set_params(OmegaConf.to_container(cfg, resolve=True))
-            aim_tr.add_tags([str(cfg.mode), str(cfg.split)])
-            _, best_ckpt = _execute_translator_epochs(
-                cfg, step_fn, params, opt_state, train_data, lr_sched,
-                lambdas, jax.random.PRNGKey(cfg.seed), n_train, db, train_run_id, aim_tr,
-            )
+        _, best_ckpt = _execute_translator_epochs(
+            cfg, step_fn, params, opt_state, train_data, lr_sched,
+            lambdas, jax.random.PRNGKey(cfg.seed), n_train, db, train_run_id,
+        )
         db.finish_training_run(train_run_id, best_checkpoint_path=best_ckpt, status="completed")
     finally:
         db.close()

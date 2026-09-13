@@ -13,7 +13,7 @@ if [ ! -f "$PYTHON_BIN" ]; then
 fi
 
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
-mkdir -p outputs outputs/checkpoints results/checkpoints results/benchmarks results/aim results/data
+mkdir -p outputs outputs/checkpoints results/checkpoints results/benchmarks results/data
 
 echo "=============================================================================="
 echo "=== Phase 1: Medium Maze Training (Sequence Attention Translator) ==="

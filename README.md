@@ -156,41 +156,18 @@ bash scripts/run_master_pipeline.sh
 
 ---
 
-## Interactive Telemetry & Experiment Tracking (Aim + SQLite)
+## Telemetry & Analytical Infrastructure (SQLite + Plotly)
 
-The framework employs a **Dual Telemetry Architecture** designed for zero runtime latency, complete episode replayability, and rich interactive visual analysis:
+The framework employs a structured, robust telemetry and analytics pipeline designed for zero runtime latency, complete episode replayability, and interactive visual analysis:
 
 1. **Relational Episode Database (SQLite `results/data/telemetry.db`)**:
    - Stores episode headers, start/goal coordinates, total steps, cross-track errors (CTE), spatial self-intersections, and full $(x, y, z, v_x, v_y, \text{action torques}, \text{attention weights})$ trajectory logs with WAL (Write-Ahead Logging) mode.
-2. **Interactive Telemetry Dashboard (Aim `results/aim`)**:
-   - Tracks real-time training losses ($\mathcal{L}_{\text{total}}$, $\mathcal{L}_{\cos}$, $\mathcal{L}_{\text{action}}$, $\mathcal{L}_{\text{reach}}$, $\mathcal{L}_{\text{goal}}$), cosine similarities, validation metrics, and learning rate schedules.
-   - Stores interactive **Plotly** figures:
-     - **Pareto Frontiers**: Inference Latency (ms) vs. Success Rate (%) trade-offs with standard error bars.
-     - **Task-by-Task Breakdowns**: Grouped bar charts comparing all architectures across tasks 1 to 5.
-     - **Trajectory & Attention Maps**: Ant trajectories overlayed with Dijkstra paths and transformer attention weights.
-
-### How to Launch Local Aim UI
-
-To start the local Aim web dashboard and inspect all training runs, benchmarks, and interactive Plotly figures:
-
-```bash
-# Start Aim UI server locally
-aim up --repo results/aim --port 43800
-```
-
-Once started, open your browser and navigate to:
-```
-http://localhost:43800
-```
-
-### Remote Server Sync (Optional)
-
-To synchronize local telemetry data (`results/aim/`) to a centralized Aim server or VPS:
-
-```bash
-# Export and sync local Aim runs to remote server container
-bash scripts/sync_aim.sh
-```
+   - Retains full training epoch loss curves, learning rates, checkpoint paths, and timing statistics.
+2. **Interactive Plotly Visual Analytics (`src/telemetry/plotting.py`)**:
+   - **Pareto Frontiers**: Inference Latency (ms) vs. Success Rate (%) trade-offs with standard error bars.
+   - **Multi-Metric Radar Profiles**: 5-axis architecture comparison (Success Rate, Speed, Clean Trajectory, CTE, Throughput).
+   - **Task-by-Task Breakdowns**: Grouped bar charts comparing all architectures across tasks 1 to 5.
+   - **Trajectory & Navigation Maps**: Ant trajectories overlayed with Dijkstra paths, attention targets, and success/failure classifications.
 
 ---
 
@@ -221,15 +198,14 @@ fb-rl/
 │   ├── preamble.tex               # LaTeX preamble and packages
 │   └── main.pdf                   # Compiled technical report PDF
 ├── results/                       # Evaluation outputs and model weights
-│   ├── aim/                       # Local Aim experiment tracking repository (.aim)
 │   ├── benchmarks/                # Multi-seed benchmark summary tables (CSV/MD)
 │   ├── checkpoints/               # Trained neural network weights (.pkl)
 │   ├── data/                      # SQLite relational telemetry database (telemetry.db)
 │   └── datasets/                  # Offline demonstration datasets (npz)
-├── scripts/                       # Training, benchmarking, and sync scripts
+├── scripts/                       # Training and benchmarking scripts
 │   ├── benchmark.py               # Multi-seed StagedAgent benchmark runner
+│   ├── export_benchmark_telemetry.py # Telemetry export from SQLite
 │   ├── run_master_pipeline.sh     # Master end-to-end training & evaluation pipeline
-│   ├── sync_aim.sh                # RSync and central Aim server ingestion script
 │   ├── train_distillation.py      # Direct intention policy distillation trainer
 │   └── train_waypoint_translators.py # Sequence Attention & Single WP translator trainer
 ├── src/                           # Core library modules
@@ -240,15 +216,13 @@ fb-rl/
 │   ├── networks.py                # Flax Linen neural network modules
 │   ├── stages.py                  # Modular pipeline execution stages
 │   ├── telemetry/                 # Telemetry, metrics, and tracking modules
-│   │   ├── aim_fast.py            # Batched remote client transport patch
-│   │   ├── aim_tracker.py         # Aim Run lifecycle and metric tracker wrapper
 │   │   ├── db.py                  # SQLite database engine (TelemetryDatabase)
 │   │   ├── metrics.py             # CTE and geometric self-intersection metrics
 │   │   ├── plotting.py            # Seaborn-theme Plotly figure builders (Pareto, Radar, Trajectories)
 │   │   └── profiler.py            # High-resolution stage latency profiler
 │   ├── topology.py                # Graph construction and Dijkstra search
 │   └── training.py                # JIT-compiled differentiable loss steps
-└── tests/                         # Pytest test suite (59 unit tests)
+└── tests/                         # Pytest test suite (58 unit tests)
 ```
 
 ---

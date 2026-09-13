@@ -423,43 +423,21 @@ def test_training_cascade_deletion(tmp_path):
         cur.close()
 
 
-def test_aim_fast_patch():
-    """Verify runtime batching patch applies cleanly."""
-    from src.telemetry.aim_fast import is_patched, patch
-    patch(batch_size=25)
-    assert is_patched() is True
-
-
-def test_aim_tracker_lifecycle_and_metrics(tmp_path):
-    """Verify AimTracker initialization, param logging, tags, and scalar tracking."""
-    from src.telemetry import AimTracker
-    aim_dir = str(tmp_path / "aim_test_repo")
-    with AimTracker(repo=aim_dir, experiment="unit_test_exp", run_name="unit_run") as tracker:
-        assert tracker.hash is not None
-        tracker.set_params({"lr": 1e-3, "hidden_dim": 128})
-        tracker.add_tags(["unit_test", "quick"])
-        tracker.track(2.5, name="loss", step=0, epoch=0)
-        tracker.track(0.75, name="loss", step=1, epoch=1)
-
-
-def test_plotly_figure_builders_and_aim_figure(tmp_path):
-    """Verify Plotly figure constructors and tracking inside AimTracker."""
+def test_plotly_figure_builders():
+    """Verify Plotly figure constructors for trajectories, Pareto, task breakdown, and radar."""
     from src.telemetry import (
-        AimTracker,
         build_pareto_figure,
+        build_radar_figure,
         build_task_breakdown_figure,
         build_trajectory_figure,
     )
     traj = [{"x": 0.0, "y": 0.0, "attention_targets": "[[1.0, 1.0]]", "attention_weights": "[1.0]"}]
     path = [[0.0, 0.0], [2.0, 2.0]]
-    fig_traj = build_trajectory_figure("Sequence Attention", path_coords=path, traj_steps=traj)
+    fig_traj = build_trajectory_figure("Sequence Attention", path_coords=path, traj_steps=traj, is_success=True)
     fig_pareto = build_pareto_figure(["m1", "m2"], [1.0, 1.5], [80.0, 85.0], [2.0, 3.0])
     fig_task = build_task_breakdown_figure(["m1"], {"m1": [80.0, 85.0, 90.0, 75.0, 95.0]})
+    fig_radar = build_radar_figure(["m1"], ["A", "B", "C"], {"m1": [80.0, 90.0, 70.0]})
     assert fig_traj is not None
     assert fig_pareto is not None
     assert fig_task is not None
-
-    aim_dir = str(tmp_path / "aim_fig_repo")
-    with AimTracker(repo=aim_dir, experiment="fig_test_exp") as tracker:
-        tracker.track_figure(fig_traj, name="trajectory_map", step=0)
-        tracker.track_figure(fig_pareto, name="pareto", step=0)
+    assert fig_radar is not None

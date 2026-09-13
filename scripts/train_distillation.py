@@ -20,7 +20,6 @@ if PROJECT_ROOT not in sys.path:
 
 from src.agent_loader import load_pretrained_agent
 from src.networks import build_direct_translator
-from src.telemetry import AimTracker
 from src.telemetry.db import TelemetryDatabase
 from src.topology import DijkstraGraph
 from src.training import (
@@ -222,9 +221,8 @@ def _execute_training_loop(
     train_run_id: str,
     lr: float,
     save_info: Tuple[str, str, str],
-    aim_tracker: Optional[AimTracker] = None,
 ) -> Tuple[Any, list, Optional[str]]:
-    """Execute iterative optimization epochs with SQLite and Aim logging."""
+    """Execute iterative optimization epochs with SQLite logging."""
     history = []
     best_ckpt = None
     for ep in range(1, epochs + 1):
@@ -245,13 +243,6 @@ def _execute_training_loop(
             train_run_id, ep, combined_m,
             checkpoint_path=ckpt_path, epoch_time_s=ep_time, learning_rate=lr,
         )
-        if aim_tracker is not None:
-            for k, v in combined_m.items():
-                aim_tracker.track(v, name=k, epoch=ep, step=ep)
-            aim_tracker.track(lr, name="learning_rate", epoch=ep, step=ep)
-            aim_tracker.track(ep_time, name="epoch_time_s", epoch=ep, step=ep)
-            if ckpt_path:
-                aim_tracker.set_params({"best_checkpoint_path": ckpt_path})
         if ep % 5 == 0 or ep == epochs:
             print(
                 f"Epoch {ep:3d}/{epochs} | Loss: {tr_m['loss']:.4f} | "
@@ -279,7 +270,6 @@ def train_distillation(
     output_dir: str = "results",
     seed: int = 0,
     db_path: str = "results/telemetry.db",
-    aim_repo: Optional[str] = None,
 ) -> Tuple[Any, list]:
     """Train direct intention translator network on offline demonstrations."""
     agent, train_data, val_data, n_train = _load_distillation_data(
@@ -295,7 +285,6 @@ def train_distillation(
     db_file = db_path if os.path.isabs(db_path) else os.path.join(PROJECT_ROOT, db_path)
     os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
     db = TelemetryDatabase(db_file)
-    repo = aim_repo or os.path.join(PROJECT_ROOT, "results", "aim")
     try:
         run_name = f"distillation_{model_type}_{split}_s{seed}"
         config_dict = {
@@ -308,13 +297,10 @@ def train_distillation(
             run_name=run_name, model_type=model_type, split=split, seed=seed, config=config_dict,
         )
         save_info = (model_type, split, output_dir)
-        with AimTracker(repo=repo, experiment=f"train_{split}", run_name=run_name) as aim_tr:
-            aim_tr.set_params(config_dict)
-            aim_tr.add_tags([model_type, split])
-            params, history, best_ckpt = _execute_training_loop(
-                step_fn, eval_fn, params, opt_state, train_data, val_data, batch_size,
-                lambdas, jax.random.PRNGKey(seed), n_train, epochs, db, train_run_id, lr, save_info, aim_tr,
-            )
+        params, history, best_ckpt = _execute_training_loop(
+            step_fn, eval_fn, params, opt_state, train_data, val_data, batch_size,
+            lambdas, jax.random.PRNGKey(seed), n_train, epochs, db, train_run_id, lr, save_info,
+        )
         db.finish_training_run(train_run_id, best_checkpoint_path=best_ckpt, status="completed")
     finally:
         db.close()
