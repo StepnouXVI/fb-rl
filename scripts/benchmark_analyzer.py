@@ -269,7 +269,7 @@ def __(Dict, List, go):
                 )
             )
         fig.update_layout(
-            title=dict(text="Radar Profile (5-Axis Architecture Performance)", font=dict(size=13, family="sans-serif")),
+            title=dict(text="Radar Profile (5-Axis Architecture Performance)", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
             polar=dict(
                 radialaxis=dict(visible=True, range=[0, 100], gridcolor="#E2E8F0", linecolor="#CBD5E0"),
                 angularaxis=dict(gridcolor="#E2E8F0", linecolor="#CBD5E0"),
@@ -277,10 +277,10 @@ def __(Dict, List, go):
             ),
             paper_bgcolor="#FFFFFF",
             template="seaborn",
-            width=580,
-            height=460,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.32, xanchor="center", x=0.5),
-            margin=dict(l=40, r=40, t=50, b=70),
+            width=680,
+            height=520,
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
+            margin=dict(l=40, r=40, t=80, b=40),
         )
         return fig
 
@@ -304,7 +304,7 @@ def __(Any, Dict, List, go):
                     mode="markers",
                     name=m,
                     error_y=dict(type="data", array=[b["sr_std"]], visible=True),
-                    marker=dict(size=14, color=colors[i % len(colors)], line=dict(color="#1A202C", width=1.5)),
+                    marker=dict(size=15, color=colors[i % len(colors)], line=dict(color="#1A202C", width=1.5)),
                     text=[m],
                     customdata=[b["sr_std"]],
                     hovertemplate="<b>%{text}</b><br>Success Rate: %{y:.1f}% ± %{customdata:.1f}%<br>Latency: %{x:.2f} ms<extra></extra>",
@@ -312,16 +312,16 @@ def __(Any, Dict, List, go):
             )
         srs = [bundle[m]["sr_mean"] for m in methods]
         fig.update_layout(
-            title=dict(text="Pareto Trade-Off: Latency vs Success Rate", font=dict(size=13, family="sans-serif")),
+            title=dict(text="Pareto Trade-Off: Latency vs Success Rate", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
             xaxis=dict(title="Latency (ms/step)", gridcolor="#E2E8F0", linecolor="#CBD5E0"),
             yaxis=dict(title="Success Rate (%)", range=[max(0.0, min(srs) - 10.0), min(100.0, max(srs) + 10.0)], gridcolor="#E2E8F0", linecolor="#CBD5E0"),
             paper_bgcolor="#FFFFFF",
             plot_bgcolor="#F8FAFC",
             template="seaborn",
-            width=580,
-            height=460,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.32, xanchor="center", x=0.5),
-            margin=dict(l=40, r=40, t=50, b=70),
+            width=680,
+            height=520,
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
+            margin=dict(l=55, r=40, t=80, b=50),
         )
         return fig
 
@@ -396,64 +396,34 @@ def __(Any, Dict, List, go, json):
 
 
 @app.cell
-def __(
-    Any,
-    Dict,
-    List,
-    Optional,
-    append_attention_trace,
-    get_maze_wall_shapes,
-    go,
-    np,
-):
-    """Static 2D trajectory figure builder with AntMaze walls and waypoints."""
-    def build_trajectory_figure(
-        split: str,
-        method_name: str,
-        path_coords: Optional[List[List[float]]],
-        traj_steps: List[Dict[str, Any]],
-        is_success: bool,
-        maze_layouts: Dict[str, np.ndarray],
-    ) -> go.Figure:
-        """Build static 2D Plotly figure with maze walls, planned path, and trajectory."""
-        shapes, (x_min, x_max, y_min, y_max) = get_maze_wall_shapes(split, maze_layouts)
-        fig = go.Figure()
-        if path_coords:
-            px, py = [p[0] for p in path_coords], [p[1] for p in path_coords]
-            fig.add_trace(go.Scatter(
-                x=px, y=py, mode="lines+markers", name="Planned Dijkstra Path",
-                line=dict(color="#DD8452", width=2.5, dash="dash"), marker=dict(size=4, color="#DD8452"),
-            ))
-        if traj_steps:
-            tx, ty = [s["x"] for s in traj_steps], [s["y"] for s in traj_steps]
-            ant_col = "#2CA02C" if is_success else "#D62728"
-            fig.add_trace(go.Scatter(
-                x=tx, y=ty, mode="lines", name="Ant Trajectory", line=dict(color=ant_col, width=3),
-            ))
-            fig.add_trace(go.Scatter(
-                x=[tx[0]], y=[ty[0]], mode="markers+text", name="Start",
-                marker=dict(size=13, color="#2CA02C", symbol="circle"), text=["Start"], textposition="top center",
-            ))
-            fin_sym = "star" if is_success else "x"
-            fin_label = "Goal Reached" if is_success else "Final Position"
-            fig.add_trace(go.Scatter(
-                x=[tx[-1]], y=[ty[-1]], mode="markers+text", name=fin_label,
-                marker=dict(size=14, color=ant_col, symbol=fin_sym), text=[fin_label], textposition="top center",
-            ))
-            append_attention_trace(fig, traj_steps)
-        status_str = "SUCCESS" if is_success else "FAILED"
-        fig.update_layout(
-            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif")),
-            shapes=shapes, plot_bgcolor="#F7FAFC", paper_bgcolor="#FFFFFF",
-            xaxis=dict(title="X (meters)", range=[x_min, x_max], gridcolor="#E2E8F0", zeroline=False),
-            yaxis=dict(title="Y (meters)", range=[y_min, y_max], scaleanchor="x", scaleratio=1, gridcolor="#E2E8F0", zeroline=False),
-            template="seaborn", width=750, height=620,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=30, r=30, t=50, b=30),
-        )
-        return fig
+def __(go):
+    """Base traces for trajectory figure with Dijkstra path, endpoints, and ant."""
+    def add_trajectory_base_traces(
+        fig: go.Figure, px: list, py: list, tx: list, ty: list, is_succ: bool, ant_col: str,
+    ) -> None:
+        """Populate base Scatter traces for Dijkstra path, start, goal, and initial ant position."""
+        fig.add_trace(go.Scatter(
+            x=px, y=py, mode="lines+markers", name="Dijkstra Path",
+            line=dict(color="#DD8452", width=2, dash="dash"), marker=dict(size=4, color="#DD8452"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[tx[0]], y=[ty[0]], mode="markers+text", name="Start",
+            marker=dict(size=13, color="#2CA02C", symbol="circle"), text=["Start"], textposition="top center",
+        ))
+        sym, lbl = ("star", "Goal Reached") if is_succ else ("x", "Final Position")
+        fig.add_trace(go.Scatter(
+            x=[tx[-1]], y=[ty[-1]], mode="markers+text", name=lbl,
+            marker=dict(size=14, color=ant_col, symbol=sym), text=[lbl], textposition="top center",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[tx[0]], y=[ty[0]], mode="lines", name="Ant Path", line=dict(color=ant_col, width=3.5),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[tx[0]], y=[ty[0]], mode="markers", name="Ant Head",
+            marker=dict(size=14, color=ant_col, symbol="circle", line=dict(color="#1A202C", width=2)),
+        ))
 
-    return build_trajectory_figure,
+    return add_trajectory_base_traces,
 
 
 @app.cell
@@ -472,17 +442,17 @@ def __(Any, Dict, List, Tuple):
         ]
         menu = [
             dict(
-                type="buttons", direction="left", x=0.0, y=-0.22, xanchor="left", yanchor="top",
+                type="buttons", direction="left", x=0.0, y=1.07, xanchor="left", yanchor="bottom",
                 buttons=[
-                    dict(label="Play", method="animate", args=[None, dict(frame=dict(duration=60, redraw=False), fromcurrent=True, mode="immediate")]),
-                    dict(label="Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
+                    dict(label="▶ Play", method="animate", args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True, mode="immediate")]),
+                    dict(label="⏸ Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
                 ],
             )
         ]
         sliders = [
             dict(
-                active=0, y=-0.12, x=0.0, len=1.0,
-                currentvalue=dict(font=dict(size=12), prefix="Step: ", visible=True, xanchor="right"),
+                active=0, y=-0.08, x=0.0, len=1.0,
+                currentvalue=dict(font=dict(size=11), prefix="Step: ", visible=True, xanchor="right"),
                 steps=steps,
             )
         ]
@@ -495,18 +465,16 @@ def __(Any, Dict, List, Tuple):
 def __(Any, go):
     """Build frames for Plotly trajectory animation."""
     def create_trajectory_frames(
-        tx: list, ty: list, indices: list, ant_color: str, path_coords: Any
+        tx: list, ty: list, indices: list, ant_color: str,
     ) -> list:
         """Generate animation frames updating trajectory line and Ant head marker."""
-        traj_idx = 1 if path_coords else 0
-        head_idx = 2 if path_coords else 1
         return [
             go.Frame(
                 data=[
-                    go.Scatter(x=tx[: idx + 1], y=ty[: idx + 1], mode="lines", line=dict(color=ant_color, width=3)),
-                    go.Scatter(x=[tx[idx]], y=[ty[idx]], mode="markers", marker=dict(size=12, color=ant_color, symbol="circle")),
+                    go.Scatter(x=tx[: idx + 1], y=ty[: idx + 1], mode="lines", line=dict(color=ant_color, width=3.5)),
+                    go.Scatter(x=[tx[idx]], y=[ty[idx]], mode="markers", marker=dict(size=14, color=ant_color, symbol="circle", line=dict(color="#1A202C", width=2))),
                 ],
-                name=str(idx), traces=[traj_idx, head_idx],
+                name=str(idx), traces=[3, 4],
             )
             for idx in indices
         ]
@@ -520,6 +488,8 @@ def __(
     Dict,
     List,
     Optional,
+    add_trajectory_base_traces,
+    append_attention_trace,
     create_trajectory_frames,
     get_maze_wall_shapes,
     go,
@@ -542,37 +512,90 @@ def __(
             return fig
         tx, ty = [s["x"] for s in traj_steps], [s["y"] for s in traj_steps]
         ant_color = "#2CA02C" if is_success else "#D62728"
-        if path_coords:
-            px, py = [p[0] for p in path_coords], [p[1] for p in path_coords]
-            fig.add_trace(go.Scatter(
-                x=px, y=py, mode="lines", name="Planned Path", line=dict(color="#DD8452", width=2, dash="dash"),
-            ))
-        fig.add_trace(go.Scatter(
-            x=[tx[0]], y=[ty[0]], mode="lines", name="Trajectory", line=dict(color=ant_color, width=3),
-        ))
-        fig.add_trace(go.Scatter(
-            x=[tx[0]], y=[ty[0]], mode="markers", name="Ant Head", marker=dict(size=12, color=ant_color, symbol="circle"),
-        ))
+        px = [p[0] for p in path_coords] if path_coords else []
+        py = [p[1] for p in path_coords] if path_coords else []
+        add_trajectory_base_traces(fig, px, py, tx, ty, is_success, ant_color)
+        append_attention_trace(fig, traj_steps)
         total = len(traj_steps)
         step_size = max(1, total // 50)
         indices = list(range(0, total, step_size))
         if indices[-1] != total - 1:
             indices.append(total - 1)
-        frames = create_trajectory_frames(tx, ty, indices, ant_color, path_coords)
+        frames = create_trajectory_frames(tx, ty, indices, ant_color)
         menu, sliders = make_animation_menus(indices)
         status_str = "SUCCESS" if is_success else "FAILED"
         fig.update_layout(
-            title=dict(text=f"Animated Playback: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif")),
+            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif"), x=0.22, y=1.07, xanchor="left"),
             shapes=shapes, plot_bgcolor="#F7FAFC", paper_bgcolor="#FFFFFF",
             xaxis=dict(title="X (meters)", range=[x_min, x_max], gridcolor="#E2E8F0", zeroline=False),
             yaxis=dict(title="Y (meters)", range=[y_min, y_max], scaleanchor="x", scaleratio=1, gridcolor="#E2E8F0", zeroline=False),
-            template="seaborn", width=750, height=620, updatemenus=menu, sliders=sliders,
-            margin=dict(l=30, r=30, t=50, b=80),
+            template="seaborn", width=740, height=640, updatemenus=menu, sliders=sliders,
+            legend=dict(orientation="h", yanchor="bottom", y=1.07, xanchor="right", x=1.0),
+            margin=dict(l=40, r=40, t=80, b=60),
         )
         fig.frames = frames
         return fig
 
     return build_animated_trajectory_figure,
+
+
+@app.cell
+def __(Any, Dict, List, go, json, np):
+    """Attention distribution or locomotion dynamics figure builder."""
+    def build_attention_distribution_figure(
+        traj_steps: List[Dict[str, Any]], method_name: str
+    ) -> go.Figure:
+        """Construct attention distribution bar chart or locomotion dynamics line chart."""
+        fig = go.Figure()
+        if not traj_steps:
+            return fig
+        raw_wts = [s.get("attention_weights") for s in traj_steps if s.get("attention_weights")]
+        parsed_wts = []
+        for rw in raw_wts:
+            try:
+                pw = json.loads(rw) if isinstance(rw, str) else rw
+                if pw and len(pw) > 0:
+                    parsed_wts.append([float(w) for w in pw])
+            except Exception:
+                pass
+        if parsed_wts:
+            mean_w = np.mean(parsed_wts, axis=0) * 100.0
+            n_tokens = len(mean_w)
+            labels = [f"WP {i + 1}" for i in range(n_tokens)]
+            if n_tokens > 0:
+                labels[-1] = "Goal (z)"
+            fig.add_trace(go.Bar(
+                x=labels, y=mean_w,
+                text=[f"{v:.1f}%" for v in mean_w], textposition="outside",
+                marker=dict(color="#3182CE", line=dict(color="#1A365D", width=1.5)),
+                name="Attention Weight",
+            ))
+            y_top = min(100.0, max(mean_w) * 1.25 + 5.0) if len(mean_w) > 0 else 100.0
+            fig.update_layout(
+                title=dict(text=f"Waypoint Attention: {method_name}", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
+                xaxis=dict(title="Waypoint Token Sequence", gridcolor="#E2E8F0"),
+                yaxis=dict(title="Attention Weight (%)", range=[0, y_top], gridcolor="#E2E8F0"),
+                template="seaborn", width=540, height=640,
+                margin=dict(l=50, r=40, t=80, b=60),
+            )
+        else:
+            steps_idx = list(range(len(traj_steps)))
+            speeds = [float(s.get("speed", 0.0)) for s in traj_steps]
+            norms = [float(s.get("action_norm", 0.0)) for s in traj_steps]
+            fig.add_trace(go.Scatter(x=steps_idx, y=speeds, mode="lines", name="Speed (m/s)", line=dict(color="#55A868", width=2)))
+            fig.add_trace(go.Scatter(x=steps_idx, y=norms, mode="lines", name="Action Norm", line=dict(color="#DD8452", width=1.5, dash="dot"), yaxis="y2"))
+            fig.update_layout(
+                title=dict(text=f"Control Dynamics: {method_name}", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
+                xaxis=dict(title="Step Index", gridcolor="#E2E8F0"),
+                yaxis=dict(title="Speed (m/s)", gridcolor="#E2E8F0"),
+                yaxis2=dict(title="Action Norm", overlaying="y", side="right", showgrid=False),
+                template="seaborn", width=540, height=640,
+                legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
+                margin=dict(l=50, r=50, t=80, b=60),
+            )
+        return fig
+
+    return build_attention_distribution_figure,
 
 
 @app.cell
@@ -845,10 +868,19 @@ def __(
     """Resolve selected episode and fetch step telemetry."""
     active_ep_id = ep_selector.value
     if ep_table.value is not None and len(ep_table.value) > 0:
-        sel_row = ep_table.value[0]
-        match_rows = ep_df[ep_df["Episode ID"] == sel_row.get("Episode ID")]
-        if not match_rows.empty and "_full_id" in match_rows.columns:
-            active_ep_id = match_rows.iloc[0]["_full_id"]
+        val = ep_table.value
+        sel_dict = (
+            val.iloc[0].to_dict()
+            if hasattr(val, "iloc")
+            else (val[0] if isinstance(val, list) and isinstance(val[0], dict) else (val if isinstance(val, dict) else {}))
+        )
+        target_id = sel_dict.get("Episode ID")
+        if target_id is not None:
+            match_rows = ep_df[ep_df["Episode ID"] == target_id]
+            if not match_rows.empty and "_full_id" in match_rows.columns:
+                active_ep_id = match_rows.iloc[0]["_full_id"]
+        elif hasattr(val, "index") and len(val.index) > 0 and 0 <= val.index[0] < len(ep_df):
+            active_ep_id = ep_df.iloc[val.index[0]]["_full_id"]
 
     matching = (
         filtered_episodes[filtered_episodes["episode_id"] == active_ep_id]
@@ -868,7 +900,7 @@ def __(
 @app.cell
 def __(
     build_animated_trajectory_figure,
-    build_trajectory_figure,
+    build_attention_distribution_figure,
     details,
     ep_row,
     ep_selector,
@@ -897,22 +929,21 @@ def __(
         ])
     else:
         cards = render_metric_cards_html(ep_row)
-        stat_fig = build_trajectory_figure(
-            tab2_split.value, tab2_method.value, details["path_coords"], details["steps"], is_succ, maze_layouts,
-        )
         anim_fig = build_animated_trajectory_figure(
             tab2_split.value, tab2_method.value, details["path_coords"], details["steps"], is_succ, maze_layouts,
         )
+        attn_fig = build_attention_distribution_figure(
+            details["steps"], tab2_method.value,
+        )
         anim_html = mo.Html(pio.to_html(anim_fig, include_plotlyjs="cdn", full_html=False))
+        attn_html = mo.Html(pio.to_html(attn_fig, include_plotlyjs=False, full_html=False))
         inspector_content = mo.vstack([
             filter_bar,
             ep_table,
             mo.hstack([ep_selector], justify="start"),
             mo.Html(cards),
-            mo.md("#### Static Trajectory & AntMaze Walls"),
-            stat_fig,
-            mo.md("#### Step-by-Step Animated Scene"),
-            anim_html,
+            mo.md("#### Trajectory Playback & Telemetry Analysis"),
+            mo.hstack([anim_html, attn_html], justify="start", gap=2),
         ])
     return filter_bar, inspector_content
 
