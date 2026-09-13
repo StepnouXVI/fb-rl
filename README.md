@@ -169,12 +169,16 @@ The framework employs a structured, robust telemetry and analytics pipeline desi
    - **Task-by-Task Breakdowns**: Grouped bar charts comparing all architectures across tasks 1 to 5.
    - **Trajectory & Navigation Maps**: Ant trajectories overlayed with Dijkstra paths, attention targets, and success/failure classifications.
 
-### Launch Interactive Analytics Dashboard (Streamlit)
+### Launch Interactive Marimo Analytics App
 
-To launch the web dashboard for visual benchmark analysis, Pareto trade-offs, multi-metric radar charts, and interactive episode trajectory inspection:
+To start the reactive Marimo application for full benchmark analysis, Pareto trade-offs, 5-axis radar profiles, and step-by-step animated trajectory exploration inside real AntMaze walls:
 
 ```bash
-streamlit run scripts/dashboard.py
+# Launch interactive presentation app
+marimo run scripts/benchmark_analyzer.py
+
+# Or launch reactive notebook editor
+marimo edit scripts/benchmark_analyzer.py
 ```
 
 ---
@@ -212,7 +216,7 @@ fb-rl/
 │   └── datasets/                  # Offline demonstration datasets (npz)
 ├── scripts/                       # Training and benchmarking scripts
 │   ├── benchmark.py               # Multi-seed StagedAgent benchmark runner
-│   ├── dashboard.py               # Interactive Streamlit + Plotly analytics dashboard
+│   ├── benchmark_analyzer.py      # Reactive Marimo analytics & trajectory visualizer
 │   ├── export_benchmark_telemetry.py # Telemetry export from SQLite
 │   ├── run_master_pipeline.sh     # Master end-to-end training & evaluation pipeline
 │   ├── train_distillation.py      # Direct intention policy distillation trainer
