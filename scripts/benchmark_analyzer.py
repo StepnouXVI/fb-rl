@@ -15,7 +15,6 @@ def __():
     import numpy as np
     import pandas as pd
     import plotly.graph_objects as go
-    import plotly.io as pio
 
     return (
         Any,
@@ -29,7 +28,6 @@ def __():
         np,
         os,
         pd,
-        pio,
         sqlite3,
     )
 
@@ -277,10 +275,10 @@ def __(Dict, List, go):
             ),
             paper_bgcolor="#FFFFFF",
             template="seaborn",
-            width=680,
+            width=700,
             height=520,
-            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
-            margin=dict(l=40, r=40, t=80, b=40),
+            legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.05),
+            margin=dict(l=40, r=210, t=60, b=40),
         )
         return fig
 
@@ -318,10 +316,10 @@ def __(Any, Dict, List, go):
             paper_bgcolor="#FFFFFF",
             plot_bgcolor="#F8FAFC",
             template="seaborn",
-            width=680,
+            width=700,
             height=520,
-            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
-            margin=dict(l=55, r=40, t=80, b=50),
+            legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+            margin=dict(l=55, r=210, t=60, b=50),
         )
         return fig
 
@@ -530,8 +528,8 @@ def __(
             xaxis=dict(title="X (meters)", range=[x_min, x_max], gridcolor="#E2E8F0", zeroline=False),
             yaxis=dict(title="Y (meters)", range=[y_min, y_max], scaleanchor="x", scaleratio=1, gridcolor="#E2E8F0", zeroline=False),
             template="seaborn", width=740, height=640, updatemenus=menu, sliders=sliders,
-            legend=dict(orientation="h", yanchor="bottom", y=1.07, xanchor="right", x=1.0),
-            margin=dict(l=40, r=40, t=80, b=60),
+            legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+            margin=dict(l=40, r=160, t=80, b=60),
         )
         fig.frames = frames
         return fig
@@ -590,8 +588,8 @@ def __(Any, Dict, List, go, json, np):
                 yaxis=dict(title="Speed (m/s)", gridcolor="#E2E8F0"),
                 yaxis2=dict(title="Action Norm", overlaying="y", side="right", showgrid=False),
                 template="seaborn", width=540, height=640,
-                legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1.0),
-                margin=dict(l=50, r=50, t=80, b=60),
+                legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.05),
+                margin=dict(l=50, r=140, t=80, b=60),
             )
         return fig
 
@@ -909,7 +907,6 @@ def __(
     is_succ,
     maze_layouts,
     mo,
-    pio,
     render_metric_cards_html,
     tab2_method,
     tab2_seed,
@@ -935,15 +932,13 @@ def __(
         attn_fig = build_attention_distribution_figure(
             details["steps"], tab2_method.value,
         )
-        anim_html = mo.Html(pio.to_html(anim_fig, include_plotlyjs="cdn", full_html=False))
-        attn_html = mo.Html(pio.to_html(attn_fig, include_plotlyjs=False, full_html=False))
         inspector_content = mo.vstack([
             filter_bar,
             ep_table,
             mo.hstack([ep_selector], justify="start"),
             mo.Html(cards),
             mo.md("#### Trajectory Playback & Telemetry Analysis"),
-            mo.hstack([anim_html, attn_html], justify="start", gap=2),
+            mo.hstack([anim_fig, attn_fig], justify="start", gap=2),
         ])
     return filter_bar, inspector_content
 
