@@ -525,7 +525,7 @@ def __(
         menu, sliders = make_animation_menus(indices)
         status_str = "SUCCESS" if is_success else "FAILED"
         fig.update_layout(
-            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif"), x=0.22, y=1.07, xanchor="left"),
+            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif"), x=0.22, y=0.98, xanchor="left"),
             shapes=shapes, plot_bgcolor="#F7FAFC", paper_bgcolor="#FFFFFF",
             xaxis=dict(title="X (meters)", range=[x_min, x_max], gridcolor="#E2E8F0", zeroline=False),
             yaxis=dict(title="Y (meters)", range=[y_min, y_max], scaleanchor="x", scaleratio=1, gridcolor="#E2E8F0", zeroline=False),
@@ -559,10 +559,10 @@ def __(Any, Dict, List, go, json, np):
             except Exception:
                 pass
         if parsed_wts:
-            mean_w = np.mean(parsed_wts, axis=0) * 100.0
-            n_tokens = len(mean_w)
-            labels = [f"WP {i + 1}" for i in range(n_tokens)]
-            if n_tokens > 0:
+            max_len = max(len(w) for w in parsed_wts)
+            mean_w = [float(np.mean([w[i] for w in parsed_wts if i < len(w)])) * 100.0 for i in range(max_len)]
+            labels = [f"WP {i + 1}" for i in range(max_len)]
+            if max_len > 0:
                 labels[-1] = "Goal (z)"
             fig.add_trace(go.Bar(
                 x=labels, y=mean_w,
