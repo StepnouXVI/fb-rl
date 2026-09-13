@@ -114,13 +114,13 @@ def __(Any, Dict, json, os, sqlite3):
         p_row = cur.fetchone()
         path_coords = json.loads(p_row[0]) if (p_row and p_row[0]) else None
         cur.execute(
-            "SELECT x, y, speed, action_norm, attention_targets, attention_weights FROM steps WHERE episode_id = ? ORDER BY step_idx",
+            "SELECT step_idx, x, y, speed, action_norm, attention_targets, attention_weights FROM steps WHERE episode_id = ? ORDER BY step_idx",
             (episode_id,),
         )
         s_rows = cur.fetchall()
         cur.close()
         conn.close()
-        keys = ["x", "y", "speed", "action_norm", "attention_targets", "attention_weights"]
+        keys = ["step_idx", "x", "y", "speed", "action_norm", "attention_targets", "attention_weights"]
         steps = [dict(zip(keys, r)) for r in s_rows]
         return {"path_coords": path_coords, "steps": steps}
 
@@ -367,28 +367,37 @@ def __(Any, Dict, List, Tuple, np):
 
 @app.cell
 def __(Any, Dict, List, go, json):
-    """Helper for adding attention token overlays to trajectory plots."""
+    """Helper for adding attention token overlays and rays to trajectory plots."""
     def append_attention_trace(
-        fig: go.Figure, traj_steps: List[Dict[str, Any]]
+        fig: go.Figure, traj_steps: List[Dict[str, Any]], ant_x: float, ant_y: float,
     ) -> None:
-        """Add attention tokens with weights to Plotly figure if present."""
-        if not traj_steps:
-            return
-        mid_idx = len(traj_steps) // 2
-        raw_tgt = traj_steps[mid_idx].get("attention_targets")
-        raw_w = traj_steps[mid_idx].get("attention_weights")
-        if not raw_tgt or not raw_w:
-            return
-        try:
-            tgts = json.loads(raw_tgt) if isinstance(raw_tgt, str) else raw_tgt
-            wts = json.loads(raw_w) if isinstance(raw_w, str) else raw_w
-            if tgts and wts:
-                fig.add_trace(go.Scatter(
-                    x=[t[0] for t in tgts], y=[t[1] for t in tgts], mode="markers", name="Attention Targets",
-                    marker=dict(size=[max(6, int(w * 25)) for w in wts], color="#3182CE", opacity=0.7),
-                ))
-        except Exception:
-            pass
+        """Add initial attention rays and targets to Plotly figure."""
+        ray_x, ray_y, tgt_x, tgt_y, tgt_sizes = [], [], [], [], []
+        if traj_steps:
+            first_s = next((s for s in traj_steps if s.get("attention_targets")), traj_steps[0])
+            raw_tgt = first_s.get("attention_targets")
+            raw_w = first_s.get("attention_weights")
+            if raw_tgt:
+                try:
+                    tgts = json.loads(raw_tgt) if isinstance(raw_tgt, str) else raw_tgt
+                    wts = json.loads(raw_w) if isinstance(raw_w, str) else (raw_w or [])
+                    for i, t in enumerate(tgts):
+                        ray_x.extend([ant_x, t[0], None])
+                        ray_y.extend([ant_y, t[1], None])
+                        tgt_x.append(t[0])
+                        tgt_y.append(t[1])
+                        w_val = float(wts[i]) if i < len(wts) else 0.1
+                        tgt_sizes.append(max(6, int(w_val * 35)))
+                except Exception:
+                    pass
+        fig.add_trace(go.Scatter(
+            x=ray_x, y=ray_y, mode="lines", name="Attention Rays",
+            line=dict(color="#3182CE", width=1.5, dash="dot"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=tgt_x, y=tgt_y, mode="markers", name="Attention Targets",
+            marker=dict(size=tgt_sizes, color="#3182CE", opacity=0.7),
+        ))
 
     return append_attention_trace,
 
@@ -440,7 +449,7 @@ def __(Any, Dict, List, Tuple):
         ]
         menu = [
             dict(
-                type="buttons", direction="left", x=0.0, y=1.07, xanchor="left", yanchor="bottom",
+                type="buttons", direction="left", x=1.02, y=0.45, xanchor="left", yanchor="top",
                 buttons=[
                     dict(label="▶ Play", method="animate", args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True, mode="immediate")]),
                     dict(label="⏸ Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
@@ -460,22 +469,49 @@ def __(Any, Dict, List, Tuple):
 
 
 @app.cell
-def __(Any, go):
+def __(Any, go, json):
     """Build frames for Plotly trajectory animation."""
     def create_trajectory_frames(
-        tx: list, ty: list, indices: list, ant_color: str,
+        tx: list, ty: list, indices: list, ant_color: str, traj_steps: list,
     ) -> list:
-        """Generate animation frames updating trajectory line and Ant head marker."""
-        return [
-            go.Frame(
-                data=[
-                    go.Scatter(x=tx[: idx + 1], y=ty[: idx + 1], mode="lines", line=dict(color=ant_color, width=3.5)),
-                    go.Scatter(x=[tx[idx]], y=[ty[idx]], mode="markers", marker=dict(size=14, color=ant_color, symbol="circle", line=dict(color="#1A202C", width=2))),
-                ],
-                name=str(idx), traces=[3, 4],
+        """Generate animation frames updating trajectory line, Ant head, attention rays and targets."""
+        frames = []
+        for idx in indices:
+            s = traj_steps[idx]
+            raw_tgt = s.get("attention_targets")
+            raw_w = s.get("attention_weights")
+            if not raw_tgt and idx > 0:
+                for back_i in range(idx - 1, -1, -1):
+                    if traj_steps[back_i].get("attention_targets"):
+                        raw_tgt = traj_steps[back_i].get("attention_targets")
+                        raw_w = traj_steps[back_i].get("attention_weights")
+                        break
+            ray_x, ray_y, tgt_x, tgt_y, tgt_sizes = [], [], [], [], []
+            if raw_tgt:
+                try:
+                    tgts = json.loads(raw_tgt) if isinstance(raw_tgt, str) else raw_tgt
+                    wts = json.loads(raw_w) if isinstance(raw_w, str) else (raw_w or [])
+                    for i, t in enumerate(tgts):
+                        ray_x.extend([tx[idx], t[0], None])
+                        ray_y.extend([ty[idx], t[1], None])
+                        tgt_x.append(t[0])
+                        tgt_y.append(t[1])
+                        w_val = float(wts[i]) if i < len(wts) else 0.1
+                        tgt_sizes.append(max(6, int(w_val * 35)))
+                except Exception:
+                    pass
+            frames.append(
+                go.Frame(
+                    data=[
+                        go.Scatter(x=tx[: idx + 1], y=ty[: idx + 1], mode="lines", line=dict(color=ant_color, width=3.5)),
+                        go.Scatter(x=[tx[idx]], y=[ty[idx]], mode="markers", marker=dict(size=14, color=ant_color, symbol="circle", line=dict(color="#1A202C", width=2))),
+                        go.Scatter(x=ray_x, y=ray_y, mode="lines", line=dict(color="#3182CE", width=1.5, dash="dot")),
+                        go.Scatter(x=tgt_x, y=tgt_y, mode="markers", marker=dict(size=tgt_sizes, color="#3182CE", opacity=0.7)),
+                    ],
+                    name=str(idx), traces=[3, 4, 5, 6],
+                )
             )
-            for idx in indices
-        ]
+        return frames
 
     return create_trajectory_frames,
 
@@ -513,23 +549,23 @@ def __(
         px = [p[0] for p in path_coords] if path_coords else []
         py = [p[1] for p in path_coords] if path_coords else []
         add_trajectory_base_traces(fig, px, py, tx, ty, is_success, ant_color)
-        append_attention_trace(fig, traj_steps)
+        append_attention_trace(fig, traj_steps, tx[0], ty[0])
         total = len(traj_steps)
         step_size = max(1, total // 50)
         indices = list(range(0, total, step_size))
         if indices[-1] != total - 1:
             indices.append(total - 1)
-        frames = create_trajectory_frames(tx, ty, indices, ant_color)
+        frames = create_trajectory_frames(tx, ty, indices, ant_color, traj_steps)
         menu, sliders = make_animation_menus(indices)
         status_str = "SUCCESS" if is_success else "FAILED"
         fig.update_layout(
-            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif"), x=0.22, y=0.98, xanchor="left"),
+            title=dict(text=f"Trajectory: {method_name} [{status_str}]", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98, xanchor="left"),
             shapes=shapes, plot_bgcolor="#F7FAFC", paper_bgcolor="#FFFFFF",
             xaxis=dict(title="X (meters)", range=[x_min, x_max], gridcolor="#E2E8F0", zeroline=False),
             yaxis=dict(title="Y (meters)", range=[y_min, y_max], scaleanchor="x", scaleratio=1, gridcolor="#E2E8F0", zeroline=False),
             template="seaborn", width=740, height=640, updatemenus=menu, sliders=sliders,
             legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
-            margin=dict(l=40, r=160, t=80, b=60),
+            margin=dict(l=40, r=180, t=60, b=60),
         )
         fig.frames = frames
         return fig
@@ -543,41 +579,44 @@ def __(Any, Dict, List, go, json, np):
     def build_attention_distribution_figure(
         traj_steps: List[Dict[str, Any]], method_name: str
     ) -> go.Figure:
-        """Construct attention distribution bar chart or locomotion dynamics line chart."""
+        """Construct attention dynamics line chart or locomotion dynamics fallback."""
         fig = go.Figure()
         if not traj_steps:
             return fig
-        raw_wts = [s.get("attention_weights") for s in traj_steps if s.get("attention_weights")]
-        parsed_wts = []
-        for rw in raw_wts:
-            try:
-                pw = json.loads(rw) if isinstance(rw, str) else rw
-                if pw and len(pw) > 0:
-                    parsed_wts.append([float(w) for w in pw])
-            except Exception:
-                pass
-        if parsed_wts:
-            max_len = max(len(w) for w in parsed_wts)
-            mean_w = [float(np.mean([w[i] for w in parsed_wts if i < len(w)])) * 100.0 for i in range(max_len)]
-            labels = [f"WP {i + 1}" for i in range(max_len)]
-            if max_len > 0:
-                labels[-1] = "Goal (z)"
-            fig.add_trace(go.Bar(
-                x=labels, y=mean_w,
-                text=[f"{v:.1f}%" for v in mean_w], textposition="outside",
-                marker=dict(color="#3182CE", line=dict(color="#1A365D", width=1.5)),
-                name="Attention Weight",
-            ))
-            y_top = min(100.0, max(mean_w) * 1.25 + 5.0) if len(mean_w) > 0 else 100.0
+        records = []
+        for i, s in enumerate(traj_steps):
+            idx = s.get("step_idx", i)
+            rw = s.get("attention_weights")
+            if rw:
+                try:
+                    w = json.loads(rw) if isinstance(rw, str) else rw
+                    if w and len(w) > 0:
+                        records.append((idx, [float(x) for x in w]))
+                except Exception:
+                    pass
+        if records:
+            max_k = max(len(w) for _, w in records)
+            colors = ["#1F77B4", "#FF7F0E", "#2CA02C", "#9467BD", "#D62728", "#8C564B"]
+            for k in range(max_k):
+                xs = [idx for idx, w in records if k < len(w)]
+                ys = [w[k] * 100.0 for _, w in records if k < len(w)]
+                lbl = "Goal (z)" if k == max_k - 1 else f"WP {k + 1}"
+                avg_val = float(np.mean(ys)) if ys else 0.0
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys, mode="lines", name=f"{lbl} (avg {avg_val:.1f}%)",
+                    line=dict(color=colors[k % len(colors)], width=2.2),
+                    hovertemplate=f"<b>{lbl}</b><br>Step %{{x}}<br>Weight: %{{y:.1f}}%<extra></extra>",
+                ))
             fig.update_layout(
-                title=dict(text=f"Waypoint Attention: {method_name}", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
-                xaxis=dict(title="Waypoint Token Sequence", gridcolor="#E2E8F0"),
-                yaxis=dict(title="Attention Weight (%)", range=[0, y_top], gridcolor="#E2E8F0"),
-                template="seaborn", width=540, height=640,
-                margin=dict(l=50, r=40, t=80, b=60),
+                title=dict(text=f"Attention Dynamics: {method_name}", font=dict(size=14, family="sans-serif"), x=0.0, y=0.98),
+                xaxis=dict(title="Step Index", gridcolor="#E2E8F0"),
+                yaxis=dict(title="Attention Weight (%)", range=[0, 105], gridcolor="#E2E8F0"),
+                template="seaborn", width=580, height=640,
+                legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+                margin=dict(l=50, r=160, t=60, b=60),
             )
         else:
-            steps_idx = list(range(len(traj_steps)))
+            steps_idx = [s.get("step_idx", i) for i, s in enumerate(traj_steps)]
             speeds = [float(s.get("speed", 0.0)) for s in traj_steps]
             norms = [float(s.get("action_norm", 0.0)) for s in traj_steps]
             fig.add_trace(go.Scatter(x=steps_idx, y=speeds, mode="lines", name="Speed (m/s)", line=dict(color="#55A868", width=2)))
@@ -587,9 +626,9 @@ def __(Any, Dict, List, go, json, np):
                 xaxis=dict(title="Step Index", gridcolor="#E2E8F0"),
                 yaxis=dict(title="Speed (m/s)", gridcolor="#E2E8F0"),
                 yaxis2=dict(title="Action Norm", overlaying="y", side="right", showgrid=False),
-                template="seaborn", width=540, height=640,
-                legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.05),
-                margin=dict(l=50, r=140, t=80, b=60),
+                template="seaborn", width=580, height=640,
+                legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+                margin=dict(l=50, r=160, t=60, b=60),
             )
         return fig
 
