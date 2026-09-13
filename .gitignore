@@ -81,3 +81,4 @@ results/*/*/*/*.png
 results/*/*/*.png
 results/benchmarks/*seeds_medium.*
 results/benchmarks/history_*.json
+results/benchmarks/*.json

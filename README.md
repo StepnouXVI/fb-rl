@@ -244,7 +244,7 @@ fb-rl/
 │   │   ├── aim_tracker.py         # Aim Run lifecycle and metric tracker wrapper
 │   │   ├── db.py                  # SQLite database engine (TelemetryDatabase)
 │   │   ├── metrics.py             # CTE and geometric self-intersection metrics
-│   │   ├── plotting.py            # Dark-theme Plotly figure builders
+│   │   ├── plotting.py            # Seaborn-theme Plotly figure builders (Pareto, Radar, Trajectories)
 │   │   └── profiler.py            # High-resolution stage latency profiler
 │   ├── topology.py                # Graph construction and Dijkstra search
 │   └── training.py                # JIT-compiled differentiable loss steps

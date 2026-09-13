@@ -8,6 +8,7 @@ from src.telemetry.metrics import (
 )
 from src.telemetry.plotting import (
     build_pareto_figure,
+    build_radar_figure,
     build_task_breakdown_figure,
     build_trajectory_figure,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "ExecutionProfiler",
     "TelemetryDatabase",
     "build_pareto_figure",
+    "build_radar_figure",
     "build_task_breakdown_figure",
     "build_trajectory_figure",
     "compute_cross_track_errors",
