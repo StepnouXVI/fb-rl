@@ -76,20 +76,38 @@ def __(np):
 def __(os, pd, sqlite3):
     """Database query function for loading benchmark episodes."""
     def load_split_episodes(db_file: str, split: str) -> pd.DataFrame:
-        """Load episodes for specified split joined with run records."""
+        """Load episodes for latest benchmark experiment in specified split."""
         if not os.path.exists(db_file):
             return pd.DataFrame()
         conn = sqlite3.connect(db_file)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT r.experiment_id
+            FROM runs r
+            JOIN episodes e ON r.run_id = e.run_id
+            WHERE r.split = ?
+            GROUP BY r.experiment_id
+            ORDER BY MAX(e.created_at) DESC
+            LIMIT 1
+            """,
+            (split,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            conn.close()
+            return pd.DataFrame()
         query = """
             SELECT r.method, r.split, e.episode_id, e.seed, e.task_id, e.episode_idx,
                    e.is_success, e.total_steps, e.mean_speed, e.self_intersections,
                    e.mean_cross_track_error, e.max_cross_track_error, e.mean_latency_ms
             FROM episodes e
             JOIN runs r ON e.run_id = r.run_id
-            WHERE r.split = ?
+            WHERE r.split = ? AND r.experiment_id = ?
             ORDER BY r.method, e.seed, e.task_id, e.episode_idx
         """
-        df = pd.read_sql_query(query, conn, params=(split,))
+        df = pd.read_sql_query(query, conn, params=(split, row[0]))
         conn.close()
         if df.empty:
             return df
