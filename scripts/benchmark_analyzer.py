@@ -73,31 +73,66 @@ def __(np):
 
 
 @app.cell
-def __(os, pd, sqlite3):
+def __(Dict, os, sqlite3):
+    """Database query function for experiment discovery by date and time."""
+    def get_available_experiments(db_file: str, split: str) -> Dict[str, str]:
+        """Fetch available experiments for split with human-readable date/time labels."""
+        if not os.path.exists(db_file):
+            return {}
+        conn = sqlite3.connect(db_file)
+        cur = conn.cursor()
+        query = """
+            SELECT e.experiment_id, e.name, e.created_at, COUNT(DISTINCT ep.episode_id) as n_eps
+            FROM experiments e
+            JOIN runs r ON e.experiment_id = r.experiment_id
+            LEFT JOIN episodes ep ON r.run_id = ep.run_id
+            WHERE r.split = ?
+            GROUP BY e.experiment_id, e.name, e.created_at
+            ORDER BY e.created_at DESC
+        """
+        cur.execute(query, (split,))
+        rows = cur.fetchall()
+        conn.close()
+        options = {}
+        for exp_id, name, created_at, n_eps in rows:
+            dt = created_at.replace("T", " ").split(".")[0] if created_at else "Unknown"
+            options[f"{dt} ({n_eps} eps) — {name}"] = exp_id
+        return options
+
+    return get_available_experiments,
+
+
+@app.cell
+def __(Optional, os, pd, sqlite3):
     """Database query function for loading benchmark episodes."""
-    def load_split_episodes(db_file: str, split: str) -> pd.DataFrame:
-        """Load episodes for latest benchmark experiment in specified split."""
+    def load_split_episodes(
+        db_file: str, split: str, experiment_id: Optional[str] = None
+    ) -> pd.DataFrame:
+        """Load episodes for specified or latest benchmark experiment in split."""
         if not os.path.exists(db_file):
             return pd.DataFrame()
         conn = sqlite3.connect(db_file)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT r.experiment_id
-            FROM runs r
-            JOIN episodes e ON r.run_id = e.run_id
-            WHERE r.split = ?
-            GROUP BY r.experiment_id
-            ORDER BY MAX(e.created_at) DESC
-            LIMIT 1
-            """,
-            (split,),
-        )
-        row = cur.fetchone()
-        cur.close()
-        if not row:
-            conn.close()
-            return pd.DataFrame()
+        target_exp_id = experiment_id
+        if not target_exp_id:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT r.experiment_id
+                FROM runs r
+                JOIN episodes e ON r.run_id = e.run_id
+                WHERE r.split = ?
+                GROUP BY r.experiment_id
+                ORDER BY MAX(e.created_at) DESC
+                LIMIT 1
+                """,
+                (split,),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if not row:
+                conn.close()
+                return pd.DataFrame()
+            target_exp_id = row[0]
         query = """
             SELECT r.method, r.split, e.episode_id, e.seed, e.task_id, e.episode_idx,
                    e.is_success, e.total_steps, e.mean_speed, e.self_intersections,
@@ -107,7 +142,7 @@ def __(os, pd, sqlite3):
             WHERE r.split = ? AND r.experiment_id = ?
             ORDER BY r.method, e.seed, e.task_id, e.episode_idx
         """
-        df = pd.read_sql_query(query, conn, params=(split, row[0]))
+        df = pd.read_sql_query(query, conn, params=(split, target_exp_id))
         conn.close()
         if df.empty:
             return df
@@ -701,6 +736,19 @@ def __(mo):
 
 
 @app.cell
+def __(db_path, get_available_experiments, mo, tab1_split):
+    """Tab 1 experiment selector control."""
+    tab1_options = get_available_experiments(db_path, tab1_split.value)
+    tab1_first = next(iter(tab1_options.keys())) if tab1_options else None
+    tab1_exp = mo.ui.dropdown(
+        options=tab1_options if tab1_options else {"No experiments found": ""},
+        value=tab1_first if tab1_options else "No experiments found",
+        label="Experiment",
+    )
+    return tab1_exp, tab1_first, tab1_options
+
+
+@app.cell
 def __(
     build_pareto_figure,
     build_radar_figure,
@@ -710,10 +758,11 @@ def __(
     load_split_episodes,
     method_colors,
     mo,
+    tab1_exp,
     tab1_split,
 ):
     """Build Tab 1 summary metrics tables, Pareto chart, and radar profile."""
-    df_tab1 = load_split_episodes(db_path, tab1_split.value)
+    df_tab1 = load_split_episodes(db_path, tab1_split.value, tab1_exp.value)
     if df_tab1.empty:
         tab1_content = mo.md(f"No benchmark telemetry records found for split '{tab1_split.value}'.")
     else:
@@ -725,7 +774,7 @@ def __(
         categories, radar_matrix = compute_radar_matrix(methods, bundle)
         radar_fig = build_radar_figure(methods, categories, radar_matrix, method_colors)
         tab1_content = mo.vstack([
-            mo.hstack([tab1_split], justify="start"),
+            mo.hstack([tab1_split, tab1_exp], justify="start", gap=2),
             mo.md("#### Overall Benchmark Metrics"),
             table_main,
             mo.md("#### Task-by-Task Success Rates"),
@@ -750,13 +799,32 @@ def __(
 
 @app.cell
 def __(mo):
-    """Tab 2 filter controls."""
+    """Tab 2 split selector control."""
     tab2_split = mo.ui.radio(
         options=["medium", "large"],
         value="medium",
         label="Maze Split",
         inline=True,
     )
+    return tab2_split,
+
+
+@app.cell
+def __(db_path, get_available_experiments, mo, tab2_split):
+    """Tab 2 experiment selector control."""
+    tab2_options = get_available_experiments(db_path, tab2_split.value)
+    tab2_first = next(iter(tab2_options.keys())) if tab2_options else None
+    tab2_exp = mo.ui.dropdown(
+        options=tab2_options if tab2_options else {"No experiments found": ""},
+        value=tab2_first if tab2_options else "No experiments found",
+        label="Experiment",
+    )
+    return tab2_exp, tab2_first, tab2_options
+
+
+@app.cell
+def __(mo):
+    """Tab 2 episode filtering controls."""
     tab2_method = mo.ui.dropdown(
         options=[
             "1. Dijkstra + Sequence Attention",
@@ -786,7 +854,6 @@ def __(mo):
     return (
         tab2_method,
         tab2_seed,
-        tab2_split,
         tab2_status,
         tab2_task,
     )
@@ -843,6 +910,7 @@ def __(
     load_split_episodes,
     mo,
     style_episode_cell,
+    tab2_exp,
     tab2_method,
     tab2_seed,
     tab2_split,
@@ -850,7 +918,7 @@ def __(
     tab2_task,
 ):
     """Tab 2 episode filtering and table generation."""
-    df_tab2 = load_split_episodes(db_path, tab2_split.value)
+    df_tab2 = load_split_episodes(db_path, tab2_split.value, tab2_exp.value)
     filtered_episodes = filter_episodes(
         df_tab2, tab2_method.value, tab2_status.value, tab2_task.value, tab2_seed.value
     )
@@ -976,6 +1044,7 @@ def __(
     maze_layouts,
     mo,
     render_metric_cards_html,
+    tab2_exp,
     tab2_method,
     tab2_seed,
     tab2_split,
@@ -984,7 +1053,7 @@ def __(
 ):
     """Assemble inspector filter controls, metric cards, and figures."""
     filter_bar = mo.hstack(
-        [tab2_split, tab2_method, tab2_status, tab2_task, tab2_seed],
+        [tab2_split, tab2_exp, tab2_method, tab2_status, tab2_task, tab2_seed],
         justify="start", gap=1.5,
     )
     if filtered_episodes.empty or ep_row is None:
